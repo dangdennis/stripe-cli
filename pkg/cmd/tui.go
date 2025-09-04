@@ -43,9 +43,13 @@ func (i item) Title() string       { return i.title }
 func (i item) Description() string { return i.description }
 
 type model struct {
-	list     list.Model
-	choice   string
-	quitting bool
+	resourceList  list.Model
+	operationList list.Model
+	choice        string
+	quitting      bool
+	activeList    int // 0 for resource list, 1 for operation list
+	width         int
+	height        int
 }
 
 func (m model) Init() tea.Cmd {
@@ -55,7 +59,13 @@ func (m model) Init() tea.Cmd {
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.list.SetWidth(msg.Width)
+		m.width = msg.Width
+		m.height = msg.Height
+		listWidth := (msg.Width - 4) / 2 // Split width between two lists with padding
+		m.resourceList.SetWidth(listWidth)
+		m.operationList.SetWidth(listWidth)
+		m.resourceList.SetHeight(msg.Height - 6) // Account for headers and status
+		m.operationList.SetHeight(msg.Height - 6)
 		return m, nil
 
 	case tea.KeyMsg:
@@ -64,17 +74,45 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.quitting = true
 			return m, tea.Quit
 
+		case "tab":
+			// Switch between lists
+			m.activeList = (m.activeList + 1) % 2
+			return m, nil
+
 		case "enter":
-			i, ok := m.list.SelectedItem().(item)
-			if ok {
-				m.choice = i.title
+			if m.activeList == 0 {
+				// Selected from resource list - update operations list
+				i, ok := m.resourceList.SelectedItem().(item)
+				if ok && i.resourceType != "separator" {
+					m = m.updateOperationsList(i.title)
+				}
+			} else {
+				// Selected from operation list - execute choice
+				i, ok := m.operationList.SelectedItem().(item)
+				if ok {
+					resourceItem, resourceOk := m.resourceList.SelectedItem().(item)
+					if resourceOk {
+						m.choice = resourceItem.title + " " + i.title
+					} else {
+						m.choice = i.title
+					}
+				}
+				return m, tea.Quit
 			}
-			return m, tea.Quit
+			return m, nil
 		}
 	}
 
 	var cmd tea.Cmd
-	m.list, cmd = m.list.Update(msg)
+	if m.activeList == 0 {
+		m.resourceList, cmd = m.resourceList.Update(msg)
+		// Update operations when selection changes
+		if selectedItem, ok := m.resourceList.SelectedItem().(item); ok && selectedItem.resourceType != "separator" {
+			m = m.updateOperationsList(selectedItem.title)
+		}
+	} else {
+		m.operationList, cmd = m.operationList.Update(msg)
+	}
 	return m, cmd
 }
 
@@ -85,7 +123,65 @@ func (m model) View() string {
 	if m.quitting {
 		return quitTextStyle.Render("Thanks for using Stripe CLI TUI!")
 	}
-	return "\n" + m.list.View()
+
+	// Side-by-side layout
+	resourceView := m.resourceList.View()
+	operationView := m.operationList.View()
+
+	// Add borders and highlighting for active list
+	resourceBorder := lipgloss.NewStyle().Border(lipgloss.NormalBorder()).Width((m.width - 4) / 2)
+	operationBorder := lipgloss.NewStyle().Border(lipgloss.NormalBorder()).Width((m.width - 4) / 2)
+
+	if m.activeList == 0 {
+		resourceBorder = resourceBorder.BorderForeground(lipgloss.Color("170"))
+	} else {
+		operationBorder = operationBorder.BorderForeground(lipgloss.Color("170"))
+	}
+
+	resourcePanel := resourceBorder.Render(resourceView)
+	operationPanel := operationBorder.Render(operationView)
+
+	// Join panels horizontally
+	return lipgloss.JoinHorizontal(lipgloss.Top, resourcePanel, operationPanel)
+}
+
+func (m model) updateOperationsList(resourceName string) model {
+	// Get operations for the selected resource
+	operations := m.getResourceOperations(resourceName)
+
+	// Create operation items
+	operationItems := make([]list.Item, 0, len(operations))
+	for _, op := range operations {
+		operationItems = append(operationItems, item{
+			title:       op,
+			description: fmt.Sprintf("%s operation", op),
+		})
+	}
+
+	// Update the operations list
+	m.operationList.SetItems(operationItems)
+	return m
+}
+
+func (m model) getResourceOperations(resourceName string) []string {
+	// Common operations that most resources support
+	commonOps := []string{"list", "retrieve", "create", "update", "delete"}
+
+	// Special cases for certain resources
+	switch resourceName {
+	case "balance":
+		return []string{"retrieve"} // Balance is a singleton
+	case "events":
+		return []string{"list", "retrieve"} // Events are read-only
+	case "webhook_endpoints":
+		return []string{"list", "retrieve", "create", "update", "delete"}
+	case "payment_intents":
+		return []string{"list", "retrieve", "create", "update", "confirm", "capture", "cancel"}
+	case "charges":
+		return []string{"list", "retrieve", "create", "update", "capture"}
+	default:
+		return commonOps
+	}
 }
 
 var (
@@ -156,23 +252,43 @@ func (tc *tuiCmd) runTui(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Create the list
+	// Create the resource list
 	const defaultWidth = 40
-	const listHeight = 40
+	const listHeight = 20
 
-	l := list.New(items, itemDelegate{}, defaultWidth, listHeight)
-	l.Title = "Stripe CLI Resources"
-	l.SetShowStatusBar(false)
-	l.SetFilteringEnabled(false)
-	l.Styles.Title = titleStyle
-	l.Styles.PaginationStyle = paginationStyle
-	l.Styles.HelpStyle = helpStyle
+	resourceList := list.New(items, itemDelegate{}, defaultWidth, listHeight)
+	resourceList.Title = "Resources"
+	resourceList.SetShowStatusBar(false)
+	resourceList.SetFilteringEnabled(false)
+	resourceList.Styles.Title = titleStyle
+	resourceList.Styles.PaginationStyle = paginationStyle
+	resourceList.Styles.HelpStyle = helpStyle
 
-	m := model{list: l}
+	// Create the operations list (initially empty)
+	operationList := list.New([]list.Item{}, itemDelegate{}, defaultWidth, listHeight)
+	operationList.Title = "Operations"
+	operationList.SetShowStatusBar(false)
+	operationList.SetFilteringEnabled(false)
+	operationList.Styles.Title = titleStyle
+	operationList.Styles.PaginationStyle = paginationStyle
+	operationList.Styles.HelpStyle = helpStyle
+
+	m := model{
+		resourceList:  resourceList,
+		operationList: operationList,
+		activeList:    0, // Start with resource list active
+	}
+
+	// Initialize operations for the first resource
+	if len(items) > 0 {
+		if firstItem, ok := items[0].(item); ok && firstItem.resourceType != "separator" {
+			m = m.updateOperationsList(firstItem.title)
+		}
+	}
 
 	// Show API key info at the top
 	fmt.Printf("🔑 API Key: %s... (Live mode: %v)\n", apiKey[:min(7, len(apiKey))], tc.livemode)
-	fmt.Println("📡 Use ↑/↓ to navigate, Enter to select, q to quit")
+	fmt.Println("📡 Use ↑/↓ to navigate, Tab to switch lists, Enter to select, q to quit")
 	fmt.Println()
 
 	p := tea.NewProgram(m)
