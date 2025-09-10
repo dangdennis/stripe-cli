@@ -10,7 +10,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func (m model) executeCommand(resourceName, operationName string) (string, error) {
+type commandResult struct {
+	output      string
+	method      string
+	url         string
+	requestBody string
+}
+
+func (m model) executeCommand(resourceName, operationName string) (commandResult, error) {
 	// Parse resource name to build command path
 	cmdArgs := []string{}
 
@@ -27,10 +34,29 @@ func (m model) executeCommand(resourceName, operationName string) (string, error
 		cmdArgs = append(cmdArgs, operationName)
 	}
 
+	// Build metadata
+	method := "GET"
+	switch operationName {
+	case "create", "post":
+		method = "POST"
+	case "update", "patch":
+		method = "PATCH"
+	case "delete":
+		method = "DELETE"
+	}
+
+	// Construct API URL
+	apiVersion := "v1"
+	if strings.HasPrefix(resourceName, "v2 ") {
+		apiVersion = "v2"
+		resourceName = strings.TrimPrefix(resourceName, "v2 ")
+	}
+	url := fmt.Sprintf("https://api.stripe.com/%s/%s", apiVersion, strings.ReplaceAll(resourceName, " ", "/"))
+
 	// Find the command in the root command tree
 	targetCmd, _, err := m.rootCmd.Find(cmdArgs)
 	if err != nil {
-		return "", fmt.Errorf("command not found: %v", err)
+		return commandResult{}, fmt.Errorf("command not found: %v", err)
 	}
 
 	// Capture stdout and stderr
@@ -59,10 +85,19 @@ func (m model) executeCommand(resourceName, operationName string) (string, error
 		if errorOutput == "" {
 			errorOutput = err.Error()
 		}
-		return errorOutput, err
+		return commandResult{
+			output: errorOutput,
+			method: method,
+			url:    url,
+		}, err
 	}
 
-	return m.formatOutput(stdout.String()), nil
+	return commandResult{
+		output:      m.formatOutput(stdout.String()),
+		method:      method,
+		url:         url,
+		requestBody: "", // TODO: Could be enhanced to capture actual request body
+	}, nil
 }
 
 func (m model) formatOutput(output string) string {

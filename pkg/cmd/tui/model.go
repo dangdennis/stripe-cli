@@ -28,10 +28,13 @@ func doAnimTick() tea.Cmd {
 }
 
 type responseHistoryEntry struct {
-	command   string
-	timestamp time.Time
-	response  string
-	error     string
+	command     string
+	timestamp   time.Time
+	response    string
+	error       string
+	method      string
+	url         string
+	requestBody string
 }
 
 // The model reflects the entire application state.
@@ -68,7 +71,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		return m.handleWindowResize(msg)
 	case tea.KeyMsg:
-		return m.handleKeyPress(msg)
+		// Handle special keys first
+		if newModel, cmd, handled := m.handleSpecialKeys(msg); handled {
+			return newModel, cmd
+		}
+		// If not handled, fall through to list updates
 	}
 
 	return m.handleListUpdates(msg)
@@ -117,24 +124,27 @@ func (m model) handleWindowResize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m model) handleSpecialKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 	if m.showWelcome {
-		return m.handleWelcomeKeys(msg)
+		newModel, cmd := m.handleWelcomeKeys(msg)
+		return newModel, cmd, true
 	}
 
 	switch msg.String() {
 	case "ctrl+c", "q":
 		m.quitting = true
-		return m, tea.Quit
+		return m, tea.Quit, true
 	case "c":
-		return m.handleClearOutput()
+		newModel, cmd := m.handleClearOutput()
+		return newModel, cmd, true
 	case "tab", "right", "left":
 		m.activeList = (m.activeList + 1) % 3
-		return m, nil
+		return m, nil, true
 	case "enter":
-		return m.handleEnterKey()
+		newModel, cmd := m.handleEnterKey()
+		return newModel, cmd, true
 	}
-	return m, nil
+	return m, nil, false // Key not handled, let lists process it
 }
 
 func (m model) handleWelcomeKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -187,18 +197,21 @@ func (m model) handleEnterKey() (tea.Model, tea.Cmd) {
 
 func (m model) executeAndAddToHistory(resourceItem, operationItem item) (tea.Model, tea.Cmd) {
 	m.choice = resourceItem.title + " " + operationItem.title
-	output, err := m.executeCommand(resourceItem.title, operationItem.title)
+	result, err := m.executeCommand(resourceItem.title, operationItem.title)
 
 	historyEntry := responseHistoryEntry{
-		command:   m.choice,
-		timestamp: time.Now(),
-		response:  output,
+		command:     m.choice,
+		timestamp:   time.Now(),
+		response:    result.output,
+		method:      result.method,
+		url:         result.url,
+		requestBody: result.requestBody,
 	}
 	if err != nil {
 		historyEntry.error = err.Error()
 		m.commandOutput = fmt.Sprintf("Error executing command: %v", err)
 	} else {
-		m.commandOutput = output
+		m.commandOutput = result.output
 	}
 
 	m.historyEntries = append([]responseHistoryEntry{historyEntry}, m.historyEntries...)
@@ -222,11 +235,24 @@ func (m model) handleListUpdates(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.responseHistory, cmd = m.responseHistory.Update(msg)
 		if selectedItem, ok := m.responseHistory.SelectedItem().(historyItem); ok {
 			m.selectedResponse = selectedItem.index
-			m.commandOutput = m.historyEntries[selectedItem.index].response
-			if m.historyEntries[selectedItem.index].error != "" {
-				m.commandOutput = fmt.Sprintf("Error: %s", m.historyEntries[selectedItem.index].error)
+			entry := m.historyEntries[selectedItem.index]
+			
+			// Build metadata section
+			metadata := fmt.Sprintf("Request Details:\n")
+			metadata += fmt.Sprintf("  Method: %s\n", entry.method)
+			metadata += fmt.Sprintf("  URL: %s\n", entry.url)
+			if entry.requestBody != "" {
+				metadata += fmt.Sprintf("  Request Body: %s\n", entry.requestBody)
 			}
-			m.choice = m.historyEntries[selectedItem.index].command
+			metadata += fmt.Sprintf("  Timestamp: %s\n\n", entry.timestamp.Format("2006-01-02 15:04:05"))
+			
+			if entry.error != "" {
+				metadata += fmt.Sprintf("Error: %s\n\n", entry.error)
+			}
+			
+			metadata += "Response:\n"
+			m.commandOutput = metadata + entry.response
+			m.choice = entry.command
 			m.showOutput = true
 			m.outputScroll = 0
 		}
