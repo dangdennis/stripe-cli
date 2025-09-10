@@ -28,6 +28,7 @@ func doAnimTick() tea.Cmd {
 	})
 }
 
+// The model reflects the entire application state.
 type model struct {
 	resourceList  list.Model
 	operationList list.Model
@@ -159,36 +160,39 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	var cmd tea.Cmd
-	if m.activeList == 0 {
+	switch m.activeList {
+	case 0:
 		m.resourceList, cmd = m.resourceList.Update(msg)
 		// Update operations when selection changes
 		if selectedItem, ok := m.resourceList.SelectedItem().(item); ok && selectedItem.resourceType != "separator" {
 			m = m.updateOperationsList(selectedItem.title)
 		}
-	} else if m.activeList == 1 {
+	case 1:
 		m.operationList, cmd = m.operationList.Update(msg)
-	} else if m.activeList == 2 && m.showOutput {
-		// Handle output panel scrolling
-		switch msg := msg.(type) {
-		case tea.KeyMsg:
-			switch msg.String() {
-			case "up":
-				if m.outputScroll > 0 {
-					m.outputScroll--
-				}
-			case "down":
-				// Calculate max scroll based on output length
-				outputLines := strings.Count(m.commandOutput, "\n")
-				outputPanelHeight := m.height / 3
-				if outputPanelHeight < 5 {
-					outputPanelHeight = 5
-				}
-				maxScroll := outputLines - (outputPanelHeight - 4) // Account for padding and borders
-				if maxScroll < 0 {
-					maxScroll = 0
-				}
-				if m.outputScroll < maxScroll {
-					m.outputScroll++
+	case 2:
+		if m.showOutput {
+			// Handle output panel scrolling
+			switch msg := msg.(type) {
+			case tea.KeyMsg:
+				switch msg.String() {
+				case "up":
+					if m.outputScroll > 0 {
+						m.outputScroll--
+					}
+				case "down":
+					// Calculate max scroll based on output length
+					outputLines := strings.Count(m.commandOutput, "\n")
+					outputPanelHeight := m.height / 3
+					if outputPanelHeight < 5 {
+						outputPanelHeight = 5
+					}
+					maxScroll := outputLines - (outputPanelHeight - 4) // Account for padding and borders
+					if maxScroll < 0 {
+						maxScroll = 0
+					}
+					if m.outputScroll < maxScroll {
+						m.outputScroll++
+					}
 				}
 			}
 		}
