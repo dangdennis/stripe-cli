@@ -120,39 +120,40 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case "enter":
-			if m.activeList == 0 {
-				// Selected from resource list - update operations list
-				i, ok := m.resourceList.SelectedItem().(item)
-				if ok && i.resourceType != "separator" {
-					m = m.updateOperationsList(i.title)
-				}
-			} else {
-				// Selected from operation list - execute command
-				i, ok := m.operationList.SelectedItem().(item)
-				if ok {
-					resourceItem, resourceOk := m.resourceList.SelectedItem().(item)
-					if resourceOk {
-						m.choice = resourceItem.title + " " + i.title
-						output, err := m.executeCommand(resourceItem.title, i.title)
-						if err != nil {
-							m.commandOutput = fmt.Sprintf("Error executing command: %v", err)
-						} else {
-							m.commandOutput = output
+			// Check if both resource and operation are selected, then execute
+			resourceItem, resourceOk := m.resourceList.SelectedItem().(item)
+			operationItem, operationOk := m.operationList.SelectedItem().(item)
+
+			if resourceOk && resourceItem.resourceType != "separator" && len(m.operationList.Items()) > 0 {
+				// If no operation is explicitly selected, use the first available operation
+				if !operationOk {
+					if firstOp := m.operationList.Items()[0]; firstOp != nil {
+						if firstOpItem, ok := firstOp.(item); ok {
+							operationItem = firstOpItem
+							operationOk = true
 						}
-						m.showOutput = true
-						m.outputScroll = 0 // Reset scroll for new output
-
-						// Trigger window resize to adjust list heights
-						return m, tea.WindowSize()
-					} else {
-						m.choice = i.title
-						m.commandOutput = "Could not determine resource for command"
-						m.showOutput = true
-						m.outputScroll = 0 // Reset scroll for new output
-
-						// Trigger window resize to adjust list heights
-						return m, tea.WindowSize()
 					}
+				}
+			}
+			
+			if resourceOk && operationOk && resourceItem.resourceType != "separator" && len(m.operationList.Items()) > 0 {
+				// Both resource and operation are selected - execute command
+				m.choice = resourceItem.title + " " + operationItem.title
+				output, err := m.executeCommand(resourceItem.title, operationItem.title)
+				if err != nil {
+					m.commandOutput = fmt.Sprintf("Error executing command: %v", err)
+				} else {
+					m.commandOutput = output
+				}
+				m.showOutput = true
+				m.outputScroll = 0 // Reset scroll for new output
+
+				// Trigger window resize to adjust list heights
+				return m, tea.WindowSize()
+			} else if m.activeList == 0 {
+				// On resource list but no operation selected - update operations list
+				if resourceOk && resourceItem.resourceType != "separator" {
+					m = m.updateOperationsList(resourceItem.title)
 				}
 			}
 			return m, nil
