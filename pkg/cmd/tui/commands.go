@@ -6,15 +6,25 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/spf13/cobra"
 )
 
 func (m model) executeCommand(resourceName, operationName string) (string, error) {
-	// Handle v2 resources by stripping the "v2 " prefix
+	// Parse resource name to build command path
 	cmdArgs := []string{}
+
 	if strings.HasPrefix(resourceName, "v2 ") {
-		cmdArgs = append(cmdArgs, "v2", strings.TrimPrefix(resourceName, "v2 "), operationName)
+		// Handle V2 resources: "v2 namespace resource" or "v2 resource"
+		parts := strings.Fields(strings.TrimPrefix(resourceName, "v2 "))
+		cmdArgs = append(cmdArgs, "v2")
+		cmdArgs = append(cmdArgs, parts...)
+		cmdArgs = append(cmdArgs, operationName)
 	} else {
-		cmdArgs = append(cmdArgs, resourceName, operationName)
+		// Handle V1 resources: "namespace resource" or "resource"
+		parts := strings.Fields(resourceName)
+		cmdArgs = append(cmdArgs, parts...)
+		cmdArgs = append(cmdArgs, operationName)
 	}
 
 	// Find the command in the root command tree
@@ -69,22 +79,38 @@ func (m model) formatOutput(output string) string {
 }
 
 func (m model) getResourceOperations(resourceName string) []string {
-	// Common operations that most resources support
-	commonOps := []string{"list", "retrieve", "create", "update", "delete"}
+	// Parse resource name to build command path
+	var targetCmd *cobra.Command
+	var err error
 
-	// Special cases for certain resources
-	switch resourceName {
-	case "balance":
-		return []string{"retrieve"} // Balance is a singleton
-	case "events":
-		return []string{"list", "retrieve"} // Events are read-only
-	case "webhook_endpoints":
-		return []string{"list", "retrieve", "create", "update", "delete"}
-	case "payment_intents":
-		return []string{"list", "retrieve", "create", "update", "confirm", "capture", "cancel"}
-	case "charges":
-		return []string{"list", "retrieve", "create", "update", "capture"}
-	default:
-		return commonOps
+	if strings.HasPrefix(resourceName, "v2 ") {
+		// Handle V2 resources: "v2 namespace resource" or "v2 resource"
+		parts := strings.Fields(strings.TrimPrefix(resourceName, "v2 "))
+		cmdArgs := append([]string{"v2"}, parts...)
+		targetCmd, _, err = m.rootCmd.Find(cmdArgs)
+	} else {
+		// Handle V1 resources: "namespace resource" or "resource"
+		parts := strings.Fields(resourceName)
+		targetCmd, _, err = m.rootCmd.Find(parts)
 	}
+
+	if err != nil {
+		// Fallback to common operations if command not found
+		return []string{}
+	}
+
+	// Get actual operations from the command's subcommands
+	operations := []string{}
+	for _, subCmd := range targetCmd.Commands() {
+		if !subCmd.Hidden {
+			operations = append(operations, subCmd.Name())
+		}
+	}
+
+	// If no subcommands found, return common operations as fallback
+	if len(operations) == 0 {
+		return []string{}
+	}
+
+	return operations
 }

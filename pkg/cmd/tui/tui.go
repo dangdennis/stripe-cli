@@ -38,7 +38,7 @@ func runTui(cmd *cobra.Command, profile config.Profile) error {
 		}
 
 		annotation := rootCmd.Annotations[subCmd.Name()]
-		if annotation == "resource" || annotation == "namespace" {
+		if annotation == "resource" {
 			description := subCmd.Short
 			if description == "" {
 				description = "Stripe resource"
@@ -48,6 +48,25 @@ func runTui(cmd *cobra.Command, profile config.Profile) error {
 				description:  description,
 				resourceType: "v1",
 			})
+		} else if annotation == "namespace" {
+			// For namespace commands, add their resource subcommands
+			for _, nsSubCmd := range subCmd.Commands() {
+				if nsSubCmd.Hidden {
+					continue
+				}
+				nsAnnotation := subCmd.Annotations[nsSubCmd.Name()]
+				if nsAnnotation == "resource" {
+					description := nsSubCmd.Short
+					if description == "" {
+						description = fmt.Sprintf("%s resource", subCmd.Name())
+					}
+					items = append(items, item{
+						title:        subCmd.Name() + " " + nsSubCmd.Name(),
+						description:  description,
+						resourceType: "v1",
+					})
+				}
+			}
 		}
 	}
 
@@ -65,15 +84,38 @@ func runTui(cmd *cobra.Command, profile config.Profile) error {
 				if v2SubCmd.Hidden {
 					continue
 				}
-				description := v2SubCmd.Short
-				if description == "" {
-					description = "Stripe V2 resource"
+
+				v2Annotation := subCmd.Annotations[v2SubCmd.Name()]
+				if v2Annotation == "resource" {
+					description := v2SubCmd.Short
+					if description == "" {
+						description = "Stripe V2 resource"
+					}
+					items = append(items, item{
+						title:        "v2 " + v2SubCmd.Name(),
+						description:  description,
+						resourceType: "v2",
+					})
+				} else if v2Annotation == "namespace" {
+					// For V2 namespace commands, add their resource subcommands
+					for _, v2NsSubCmd := range v2SubCmd.Commands() {
+						if v2NsSubCmd.Hidden {
+							continue
+						}
+						v2NsAnnotation := v2SubCmd.Annotations[v2NsSubCmd.Name()]
+						if v2NsAnnotation == "resource" {
+							description := v2NsSubCmd.Short
+							if description == "" {
+								description = fmt.Sprintf("V2 %s resource", v2SubCmd.Name())
+							}
+							items = append(items, item{
+								title:        "v2 " + v2SubCmd.Name() + " " + v2NsSubCmd.Name(),
+								description:  description,
+								resourceType: "v2",
+							})
+						}
+					}
 				}
-				items = append(items, item{
-					title:        "v2 " + v2SubCmd.Name(),
-					description:  description,
-					resourceType: "v2",
-				})
 			}
 			break
 		}
