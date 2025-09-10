@@ -55,6 +55,7 @@ type model struct {
 	animFrame        int
 	historyEntries   []responseHistoryEntry
 	selectedResponse int
+	logger           *TUILogger
 }
 
 func (m model) Init() tea.Cmd {
@@ -125,20 +126,50 @@ func (m model) handleWindowResize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) handleSpecialKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
+	keyStr := msg.String()
+
+	// Log all key presses
+	if m.logger != nil {
+		context := map[string]interface{}{
+			"show_welcome": m.showWelcome,
+			"show_output":  m.showOutput,
+		}
+		if !m.showWelcome {
+			if selectedItem, ok := m.resourceList.SelectedItem().(item); ok {
+				context["selected_resource"] = selectedItem.title
+			}
+			if selectedItem, ok := m.operationList.SelectedItem().(item); ok {
+				context["selected_operation"] = selectedItem.title
+			}
+		}
+		m.logger.LogKeyPress(keyStr, m.activeList, context)
+	}
+
 	if m.showWelcome {
 		newModel, cmd := m.handleWelcomeKeys(msg)
 		return newModel, cmd, true
 	}
 
-	switch msg.String() {
+	switch keyStr {
 	case "ctrl+c", "q":
 		m.quitting = true
+		if m.logger != nil {
+			m.logger.LogAction("quit_application", map[string]interface{}{
+				"trigger": keyStr,
+			})
+		}
 		return m, tea.Quit, true
 	case "c":
 		newModel, cmd := m.handleClearOutput()
 		return newModel, cmd, true
 	case "tab", "right", "left":
+		oldView := getViewName(m.activeList)
 		m.activeList = (m.activeList + 1) % 3
+		newView := getViewName(m.activeList)
+
+		if m.logger != nil {
+			m.logger.LogViewChange(oldView, newView, keyStr)
+		}
 		return m, nil, true
 	case "enter":
 		newModel, cmd := m.handleEnterKey()
@@ -151,9 +182,19 @@ func (m model) handleWelcomeKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c", "q":
 		m.quitting = true
+		if m.logger != nil {
+			m.logger.LogAction("quit_from_welcome", map[string]interface{}{
+				"trigger": msg.String(),
+			})
+		}
 		return m, tea.Quit
 	case "enter", " ":
 		m.showWelcome = false
+		if m.logger != nil {
+			m.logger.LogStateChange("welcome_screen", "main_interface", map[string]interface{}{
+				"trigger": msg.String(),
+			})
+		}
 		return m, nil
 	}
 	return m, nil
@@ -161,6 +202,11 @@ func (m model) handleWelcomeKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m model) handleClearOutput() (tea.Model, tea.Cmd) {
 	if m.showOutput {
+		if m.logger != nil {
+			m.logger.LogAction("clear_output", map[string]interface{}{
+				"previous_choice": m.choice,
+			})
+		}
 		m.showOutput = false
 		m.choice = ""
 		m.commandOutput = ""
@@ -174,36 +220,69 @@ func (m model) handleEnterKey() (tea.Model, tea.Cmd) {
 	switch m.activeList {
 	case 0: // Resource list is active
 		if resourceItem, ok := m.resourceList.SelectedItem().(item); ok && resourceItem.resourceType != "separator" {
+			if m.logger != nil {
+				m.logger.LogListSelection("resource", resourceItem.title, m.resourceList.Index())
+			}
 			// Update operations list when resource is selected
 			m = m.updateOperationsList(resourceItem.title)
 			// Switch to operations list
+			oldView := getViewName(m.activeList)
 			m.activeList = 1
+			newView := getViewName(m.activeList)
+
+			if m.logger != nil {
+				m.logger.LogViewChange(oldView, newView, "resource_selection")
+			}
 		}
 	case 1: // Operation list is active
 		resourceItem, resourceOk := m.resourceList.SelectedItem().(item)
 		operationItem, operationOk := m.operationList.SelectedItem().(item)
-		
+
 		// Execute if both resource and operation are selected
 		if resourceOk && operationOk && resourceItem.resourceType != "separator" {
+			if m.logger != nil {
+				m.logger.LogListSelection("operation", operationItem.title, m.operationList.Index())
+			}
 			return m.executeAndAddToHistory(resourceItem, operationItem)
 		}
 		// If no operation selected but operations exist, use the first one
 		if resourceOk && resourceItem.resourceType != "separator" && len(m.operationList.Items()) > 0 {
 			if firstOp := m.operationList.Items()[0]; firstOp != nil {
 				if firstOpItem, ok := firstOp.(item); ok {
+					if m.logger != nil {
+						m.logger.LogListSelection("operation", firstOpItem.title, 0)
+						m.logger.LogAction("auto_select_first_operation", map[string]interface{}{
+							"resource":  resourceItem.title,
+							"operation": firstOpItem.title,
+						})
+					}
 					return m.executeAndAddToHistory(resourceItem, firstOpItem)
 				}
 			}
 		}
 	case 2: // Response history is active - no special action needed
 		// History selection is handled in handleListUpdates
+		if selectedItem, ok := m.responseHistory.SelectedItem().(historyItem); ok {
+			if m.logger != nil {
+				m.logger.LogListSelection("history", selectedItem.command, selectedItem.index)
+			}
+		}
 	}
 	return m, nil
 }
 
 func (m model) executeAndAddToHistory(resourceItem, operationItem item) (tea.Model, tea.Cmd) {
 	m.choice = resourceItem.title + " " + operationItem.title
+
+	// Time the command execution
+	startTime := time.Now()
 	result, err := m.executeCommand(resourceItem.title, operationItem.title)
+	duration := time.Since(startTime)
+
+	// Log the command execution
+	if m.logger != nil {
+		m.logger.LogCommand(m.choice, &result, err, duration)
+	}
 
 	historyEntry := responseHistoryEntry{
 		command:     m.choice,
@@ -216,8 +295,27 @@ func (m model) executeAndAddToHistory(resourceItem, operationItem item) (tea.Mod
 	if err != nil {
 		historyEntry.error = err.Error()
 		m.commandOutput = fmt.Sprintf("Error executing command: %v", err)
+
+		// Log the error details
+		if m.logger != nil {
+			m.logger.LogError("command_execution", err, map[string]interface{}{
+				"resource":  resourceItem.title,
+				"operation": operationItem.title,
+				"duration":  duration.String(),
+			})
+		}
 	} else {
 		m.commandOutput = result.output
+
+		// Log successful state change
+		if m.logger != nil {
+			m.logger.LogStateChange("command_idle", "command_result_displayed", map[string]interface{}{
+				"command":  m.choice,
+				"duration": duration.String(),
+				"method":   result.method,
+				"url":      result.url,
+			})
+		}
 	}
 
 	m.historyEntries = append([]responseHistoryEntry{historyEntry}, m.historyEntries...)
@@ -242,20 +340,20 @@ func (m model) handleListUpdates(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if selectedItem, ok := m.responseHistory.SelectedItem().(historyItem); ok {
 			m.selectedResponse = selectedItem.index
 			entry := m.historyEntries[selectedItem.index]
-			
+
 			// Build metadata section
-			metadata := fmt.Sprintf("Request Details:\n")
+			metadata := "Request Details:\n"
 			metadata += fmt.Sprintf("  Method: %s\n", entry.method)
 			metadata += fmt.Sprintf("  URL: %s\n", entry.url)
 			if entry.requestBody != "" {
 				metadata += fmt.Sprintf("  Request Body: %s\n", entry.requestBody)
 			}
 			metadata += fmt.Sprintf("  Timestamp: %s\n\n", entry.timestamp.Format("2006-01-02 15:04:05"))
-			
+
 			if entry.error != "" {
 				metadata += fmt.Sprintf("Error: %s\n\n", entry.error)
 			}
-			
+
 			metadata += "Response:\n"
 			m.commandOutput = metadata + entry.response
 			m.choice = entry.command
@@ -264,13 +362,6 @@ func (m model) handleListUpdates(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, cmd
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 type historyItem struct {

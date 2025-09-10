@@ -24,7 +24,14 @@ func NewTuiCmd(config config.Profile) *cobra.Command {
 	return cmd
 }
 
-func runTui(cmd *cobra.Command, profile config.Profile) error {
+func runTui(cmd *cobra.Command, _ config.Profile) error {
+	// Initialize logger
+	logger, err := NewTUILogger()
+	if err != nil {
+		return fmt.Errorf("failed to initialize TUI logger: %w", err)
+	}
+	defer logger.Close()
+
 	// Create list items for V1 resources using the same logic as resources command
 	items := []list.Item{}
 
@@ -159,6 +166,7 @@ func runTui(cmd *cobra.Command, profile config.Profile) error {
 		animFrame:        0,
 		historyEntries:   []responseHistoryEntry{},
 		selectedResponse: -1,
+		logger:           logger,
 	}
 
 	// Initialize operations for the first resource

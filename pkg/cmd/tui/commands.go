@@ -56,6 +56,13 @@ func (m model) executeCommand(resourceName, operationName string) (commandResult
 	// Find the command in the root command tree
 	targetCmd, _, err := m.rootCmd.Find(cmdArgs)
 	if err != nil {
+		if m.logger != nil {
+			m.logger.LogError("command_lookup", err, map[string]interface{}{
+				"command_args": cmdArgs,
+				"resource":     resourceName,
+				"operation":    operationName,
+			})
+		}
 		return commandResult{}, fmt.Errorf("command not found: %v", err)
 	}
 
@@ -85,6 +92,19 @@ func (m model) executeCommand(resourceName, operationName string) (commandResult
 		if errorOutput == "" {
 			errorOutput = err.Error()
 		}
+
+		if m.logger != nil {
+			m.logger.LogError("command_execution", err, map[string]interface{}{
+				"command_args": cmdArgs,
+				"resource":     resourceName,
+				"operation":    operationName,
+				"method":       method,
+				"url":          url,
+				"stdout":       stdout.String(),
+				"stderr":       errorOutput,
+			})
+		}
+
 		return commandResult{
 			output: errorOutput,
 			method: method,
@@ -130,6 +150,12 @@ func (m model) getResourceOperations(resourceName string) []string {
 	}
 
 	if err != nil {
+		// Log the error for debugging
+		if m.logger != nil {
+			m.logger.LogError("get_resource_operations", err, map[string]interface{}{
+				"resource_name": resourceName,
+			})
+		}
 		// Fallback to common operations if command not found
 		return []string{}
 	}
