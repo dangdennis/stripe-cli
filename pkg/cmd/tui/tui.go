@@ -142,13 +142,25 @@ func runTui(cmd *cobra.Command, profile config.Profile) error {
 	operationList.Styles.PaginationStyle = paginationStyle
 	operationList.Styles.HelpStyle = helpStyle
 
+	// Create the response history list (initially empty)
+	responseHistory := list.New([]list.Item{}, listItemDelegate{}, defaultWidth*2, listHeight/2)
+	responseHistory.Title = "Response History"
+	responseHistory.SetShowStatusBar(false)
+	responseHistory.SetFilteringEnabled(false)
+	responseHistory.Styles.Title = titleStyle
+	responseHistory.Styles.PaginationStyle = paginationStyle
+	responseHistory.Styles.HelpStyle = helpStyle
+
 	m := model{
-		resourceList:  resourceList,
-		operationList: operationList,
-		activeList:    0, // Start with resource list active
-		rootCmd:       cmd.Root(),
-		showWelcome:   true, // Show welcome screen initially
-		animFrame:     0,
+		resourceList:     resourceList,
+		operationList:    operationList,
+		responseHistory:  responseHistory,
+		activeList:       0, // Start with resource list active
+		rootCmd:          cmd.Root(),
+		showWelcome:      true, // Show welcome screen initially
+		animFrame:        0,
+		historyEntries:   []responseHistoryEntry{},
+		selectedResponse: -1,
 	}
 
 	// Initialize operations for the first resource
@@ -160,7 +172,7 @@ func runTui(cmd *cobra.Command, profile config.Profile) error {
 
 	// Show API key info at the top
 	fmt.Printf("🔑 API Key: %s... (Live mode: %v)\n", apiKey[:min(7, len(apiKey))], profile.APIKey)
-	fmt.Println("📡 Use ↑/↓ to navigate/scroll, ←/→/Tab to switch panels, Enter to execute, c to clear output, q to quit")
+	fmt.Println("📡 Use ↑/↓ to navigate, ←/→/Tab to switch panels (Resources/Operations/History), Enter to execute, c to clear, q to quit")
 	fmt.Println()
 
 	p := tea.NewProgram(m)

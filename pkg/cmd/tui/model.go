@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/list"
@@ -28,21 +27,31 @@ func doAnimTick() tea.Cmd {
 	})
 }
 
+type responseHistoryEntry struct {
+	command   string
+	timestamp time.Time
+	response  string
+	error     string
+}
+
 // The model reflects the entire application state.
 type model struct {
-	resourceList  list.Model
-	operationList list.Model
-	choice        string
-	commandOutput string
-	quitting      bool
-	activeList    int // 0 for resource list, 1 for operation list, 2 for output panel
-	width         int
-	height        int
-	rootCmd       *cobra.Command
-	showOutput    bool
-	outputScroll  int
-	showWelcome   bool
-	animFrame     int
+	resourceList     list.Model
+	operationList    list.Model
+	responseHistory  list.Model
+	choice           string
+	commandOutput    string
+	quitting         bool
+	activeList       int // 0 for resource list, 1 for operation list, 2 for response history
+	width            int
+	height           int
+	rootCmd          *cobra.Command
+	showOutput       bool
+	outputScroll     int
+	showWelcome      bool
+	animFrame        int
+	historyEntries   []responseHistoryEntry
+	selectedResponse int
 }
 
 func (m model) Init() tea.Cmd {
@@ -55,150 +64,14 @@ func (m model) Init() tea.Cmd {
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case animTickMsg:
-		if m.showWelcome {
-			m.animFrame = (m.animFrame + 1) % 20 // Cycle animation frames
-			return m, doAnimTick()
-		}
-		return m, nil
-
+		return m.handleAnimTick()
 	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
-		listWidth := (msg.Width - 4) / 2 // Split width between two lists with padding
-		m.resourceList.SetWidth(listWidth)
-		m.operationList.SetWidth(listWidth)
-
-		// Calculate list height - leave space for output panel if shown
-		outputPanelHeight := 0
-		if m.showOutput {
-			outputPanelHeight = msg.Height / 3 // Bottom third for output
-		}
-		listHeight := msg.Height - 6 - outputPanelHeight // Account for headers, status, and output panel
-
-		m.resourceList.SetHeight(listHeight)
-		m.operationList.SetHeight(listHeight)
-		return m, nil
-
+		return m.handleWindowResize(msg)
 	case tea.KeyMsg:
-		// Handle welcome screen navigation
-		if m.showWelcome {
-			switch msg.String() {
-			case "ctrl+c", "q":
-				m.quitting = true
-				return m, tea.Quit
-			case "enter", " ":
-				m.showWelcome = false
-				return m, nil
-			}
-			return m, nil
-		}
-
-		switch keypress := msg.String(); keypress {
-		case "ctrl+c", "q":
-			m.quitting = true
-			return m, tea.Quit
-
-		case "c":
-			// Clear output panel
-			if m.showOutput {
-				m.showOutput = false
-				m.choice = ""
-				m.commandOutput = ""
-				m.outputScroll = 0
-				// Trigger window resize to adjust list heights
-				return m, tea.WindowSize()
-			}
-			return m, nil
-
-		case "tab", "right", "left":
-			// Switch between lists/panels
-			maxPanels := 2
-			if m.showOutput {
-				maxPanels = 3
-			}
-			m.activeList = (m.activeList + 1) % maxPanels
-			return m, nil
-
-		case "enter":
-			// Check if both resource and operation are selected, then execute
-			resourceItem, resourceOk := m.resourceList.SelectedItem().(item)
-			operationItem, operationOk := m.operationList.SelectedItem().(item)
-
-			if resourceOk && resourceItem.resourceType != "separator" && len(m.operationList.Items()) > 0 {
-				// If no operation is explicitly selected, use the first available operation
-				if !operationOk {
-					if firstOp := m.operationList.Items()[0]; firstOp != nil {
-						if firstOpItem, ok := firstOp.(item); ok {
-							operationItem = firstOpItem
-							operationOk = true
-						}
-					}
-				}
-			}
-			
-			if resourceOk && operationOk && resourceItem.resourceType != "separator" && len(m.operationList.Items()) > 0 {
-				// Both resource and operation are selected - execute command
-				m.choice = resourceItem.title + " " + operationItem.title
-				output, err := m.executeCommand(resourceItem.title, operationItem.title)
-				if err != nil {
-					m.commandOutput = fmt.Sprintf("Error executing command: %v", err)
-				} else {
-					m.commandOutput = output
-				}
-				m.showOutput = true
-				m.outputScroll = 0 // Reset scroll for new output
-
-				// Trigger window resize to adjust list heights
-				return m, tea.WindowSize()
-			} else if m.activeList == 0 {
-				// On resource list but no operation selected - update operations list
-				if resourceOk && resourceItem.resourceType != "separator" {
-					m = m.updateOperationsList(resourceItem.title)
-				}
-			}
-			return m, nil
-		}
+		return m.handleKeyPress(msg)
 	}
 
-	var cmd tea.Cmd
-	switch m.activeList {
-	case 0:
-		m.resourceList, cmd = m.resourceList.Update(msg)
-		// Update operations when selection changes
-		if selectedItem, ok := m.resourceList.SelectedItem().(item); ok && selectedItem.resourceType != "separator" {
-			m = m.updateOperationsList(selectedItem.title)
-		}
-	case 1:
-		m.operationList, cmd = m.operationList.Update(msg)
-	case 2:
-		if m.showOutput {
-			// Handle output panel scrolling
-			switch msg := msg.(type) {
-			case tea.KeyMsg:
-				switch msg.String() {
-				case "up":
-					if m.outputScroll > 0 {
-						m.outputScroll--
-					}
-				case "down":
-					// Calculate max scroll based on output length
-					outputLines := strings.Count(m.commandOutput, "\n")
-					outputPanelHeight := m.height / 3
-					if outputPanelHeight < 5 {
-						outputPanelHeight = 5
-					}
-					maxScroll := outputLines - (outputPanelHeight - 4) // Account for padding and borders
-					if maxScroll < 0 {
-						maxScroll = 0
-					}
-					if m.outputScroll < maxScroll {
-						m.outputScroll++
-					}
-				}
-			}
-		}
-	}
-	return m, cmd
+	return m.handleListUpdates(msg)
 }
 
 func (m model) updateOperationsList(resourceName string) model {
@@ -219,9 +92,182 @@ func (m model) updateOperationsList(resourceName string) model {
 	return m
 }
 
+func (m model) handleAnimTick() (tea.Model, tea.Cmd) {
+	if m.showWelcome {
+		m.animFrame = (m.animFrame + 1) % 20
+		return m, doAnimTick()
+	}
+	return m, nil
+}
+
+func (m model) handleWindowResize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
+	m.width = msg.Width
+	m.height = msg.Height
+	listWidth := (msg.Width - 4) / 2
+	m.resourceList.SetWidth(listWidth)
+	m.operationList.SetWidth(listWidth)
+	m.responseHistory.SetWidth(msg.Width - 4)
+
+	historyPanelHeight := msg.Height / 3
+	listHeight := msg.Height - 6 - historyPanelHeight
+
+	m.resourceList.SetHeight(listHeight)
+	m.operationList.SetHeight(listHeight)
+	m.responseHistory.SetHeight(historyPanelHeight - 4)
+	return m, nil
+}
+
+func (m model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.showWelcome {
+		return m.handleWelcomeKeys(msg)
+	}
+
+	switch msg.String() {
+	case "ctrl+c", "q":
+		m.quitting = true
+		return m, tea.Quit
+	case "c":
+		return m.handleClearOutput()
+	case "tab", "right", "left":
+		m.activeList = (m.activeList + 1) % 3
+		return m, nil
+	case "enter":
+		return m.handleEnterKey()
+	}
+	return m, nil
+}
+
+func (m model) handleWelcomeKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c", "q":
+		m.quitting = true
+		return m, tea.Quit
+	case "enter", " ":
+		m.showWelcome = false
+		return m, nil
+	}
+	return m, nil
+}
+
+func (m model) handleClearOutput() (tea.Model, tea.Cmd) {
+	if m.showOutput {
+		m.showOutput = false
+		m.choice = ""
+		m.commandOutput = ""
+		m.outputScroll = 0
+		return m, tea.WindowSize()
+	}
+	return m, nil
+}
+
+func (m model) handleEnterKey() (tea.Model, tea.Cmd) {
+	resourceItem, resourceOk := m.resourceList.SelectedItem().(item)
+	operationItem, operationOk := m.operationList.SelectedItem().(item)
+
+	if resourceOk && resourceItem.resourceType != "separator" && len(m.operationList.Items()) > 0 {
+		if !operationOk {
+			if firstOp := m.operationList.Items()[0]; firstOp != nil {
+				if firstOpItem, ok := firstOp.(item); ok {
+					operationItem = firstOpItem
+					operationOk = true
+				}
+			}
+		}
+	}
+
+	if resourceOk && operationOk && resourceItem.resourceType != "separator" && len(m.operationList.Items()) > 0 {
+		return m.executeAndAddToHistory(resourceItem, operationItem)
+	} else if m.activeList == 0 {
+		if resourceOk && resourceItem.resourceType != "separator" {
+			m = m.updateOperationsList(resourceItem.title)
+		}
+	}
+	return m, nil
+}
+
+func (m model) executeAndAddToHistory(resourceItem, operationItem item) (tea.Model, tea.Cmd) {
+	m.choice = resourceItem.title + " " + operationItem.title
+	output, err := m.executeCommand(resourceItem.title, operationItem.title)
+
+	historyEntry := responseHistoryEntry{
+		command:   m.choice,
+		timestamp: time.Now(),
+		response:  output,
+	}
+	if err != nil {
+		historyEntry.error = err.Error()
+		m.commandOutput = fmt.Sprintf("Error executing command: %v", err)
+	} else {
+		m.commandOutput = output
+	}
+
+	m.historyEntries = append([]responseHistoryEntry{historyEntry}, m.historyEntries...)
+	m = m.updateResponseHistoryList()
+	m.showOutput = true
+	m.outputScroll = 0
+	return m, tea.WindowSize()
+}
+
+func (m model) handleListUpdates(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	switch m.activeList {
+	case 0:
+		m.resourceList, cmd = m.resourceList.Update(msg)
+		if selectedItem, ok := m.resourceList.SelectedItem().(item); ok && selectedItem.resourceType != "separator" {
+			m = m.updateOperationsList(selectedItem.title)
+		}
+	case 1:
+		m.operationList, cmd = m.operationList.Update(msg)
+	case 2:
+		m.responseHistory, cmd = m.responseHistory.Update(msg)
+		if selectedItem, ok := m.responseHistory.SelectedItem().(historyItem); ok {
+			m.selectedResponse = selectedItem.index
+			m.commandOutput = m.historyEntries[selectedItem.index].response
+			if m.historyEntries[selectedItem.index].error != "" {
+				m.commandOutput = fmt.Sprintf("Error: %s", m.historyEntries[selectedItem.index].error)
+			}
+			m.choice = m.historyEntries[selectedItem.index].command
+			m.showOutput = true
+			m.outputScroll = 0
+		}
+	}
+	return m, cmd
+}
+
 func min(a, b int) int {
 	if a < b {
 		return a
 	}
 	return b
+}
+
+type historyItem struct {
+	index     int
+	command   string
+	timestamp string
+	status    string
+}
+
+func (h historyItem) FilterValue() string { return h.command }
+func (h historyItem) Title() string       { return h.command }
+func (h historyItem) Description() string {
+	return fmt.Sprintf("%s - %s", h.timestamp, h.status)
+}
+
+func (m model) updateResponseHistoryList() model {
+	historyItems := make([]list.Item, 0, len(m.historyEntries))
+	for i, entry := range m.historyEntries {
+		status := "✓ Success"
+		if entry.error != "" {
+			status = "✗ Error"
+		}
+		historyItems = append(historyItems, historyItem{
+			index:     i,
+			command:   entry.command,
+			timestamp: entry.timestamp.Format("15:04:05"),
+			status:    status,
+		})
+	}
+	m.responseHistory.SetItems(historyItems)
+	return m
 }

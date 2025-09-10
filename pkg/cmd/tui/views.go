@@ -46,9 +46,26 @@ func (m model) View() string {
 	// Join top panels horizontally
 	topPanels := lipgloss.JoinHorizontal(lipgloss.Top, resourcePanel, operationPanel)
 
-	// If no output to show, return just the top panels
+	// Create response history panel
+	historyView := m.responseHistory.View()
+	historyBorderColor := lipgloss.Color("240")
+	if m.activeList == 2 {
+		historyBorderColor = lipgloss.Color("170")
+	}
+
+	historyBorder := lipgloss.NewStyle().
+		Border(lipgloss.NormalBorder()).
+		BorderForeground(historyBorderColor).
+		Width(m.width - 4)
+
+	historyPanel := historyBorder.Render(historyView)
+
+	// Create the main layout with three sections
+	mainLayout := lipgloss.JoinVertical(lipgloss.Left, topPanels, historyPanel)
+
+	// If no output to show, return layout without output panel
 	if !m.showOutput {
-		return topPanels
+		return mainLayout
 	}
 
 	// Create bottom output panel
@@ -92,11 +109,8 @@ func (m model) View() string {
 		visibleContent = strings.Join(outputLines[startLine:endLine], "\n")
 	}
 
-	// Create output panel with highlighting if active
+	// Create output panel (no longer needs highlighting as it's not selectable)
 	outputBorderColor := lipgloss.Color("240")
-	if m.activeList == 2 {
-		outputBorderColor = lipgloss.Color("170")
-	}
 
 	outputBorder := lipgloss.NewStyle().
 		Border(lipgloss.NormalBorder()).
@@ -116,8 +130,8 @@ func (m model) View() string {
 			Render(outputTitle+scrollInfo) + "\n\n" + visibleContent,
 	)
 
-	// Join top panels and bottom output panel vertically
-	return lipgloss.JoinVertical(lipgloss.Left, topPanels, outputPanel)
+	// Join main layout and output panel vertically
+	return lipgloss.JoinVertical(lipgloss.Left, mainLayout, outputPanel)
 }
 
 func (m model) welcomeView() string {
