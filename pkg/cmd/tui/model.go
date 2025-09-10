@@ -171,26 +171,32 @@ func (m model) handleClearOutput() (tea.Model, tea.Cmd) {
 }
 
 func (m model) handleEnterKey() (tea.Model, tea.Cmd) {
-	resourceItem, resourceOk := m.resourceList.SelectedItem().(item)
-	operationItem, operationOk := m.operationList.SelectedItem().(item)
-
-	if resourceOk && resourceItem.resourceType != "separator" && len(m.operationList.Items()) > 0 {
-		if !operationOk {
+	switch m.activeList {
+	case 0: // Resource list is active
+		if resourceItem, ok := m.resourceList.SelectedItem().(item); ok && resourceItem.resourceType != "separator" {
+			// Update operations list when resource is selected
+			m = m.updateOperationsList(resourceItem.title)
+			// Switch to operations list
+			m.activeList = 1
+		}
+	case 1: // Operation list is active
+		resourceItem, resourceOk := m.resourceList.SelectedItem().(item)
+		operationItem, operationOk := m.operationList.SelectedItem().(item)
+		
+		// Execute if both resource and operation are selected
+		if resourceOk && operationOk && resourceItem.resourceType != "separator" {
+			return m.executeAndAddToHistory(resourceItem, operationItem)
+		}
+		// If no operation selected but operations exist, use the first one
+		if resourceOk && resourceItem.resourceType != "separator" && len(m.operationList.Items()) > 0 {
 			if firstOp := m.operationList.Items()[0]; firstOp != nil {
 				if firstOpItem, ok := firstOp.(item); ok {
-					operationItem = firstOpItem
-					operationOk = true
+					return m.executeAndAddToHistory(resourceItem, firstOpItem)
 				}
 			}
 		}
-	}
-
-	if resourceOk && operationOk && resourceItem.resourceType != "separator" && len(m.operationList.Items()) > 0 {
-		return m.executeAndAddToHistory(resourceItem, operationItem)
-	} else if m.activeList == 0 {
-		if resourceOk && resourceItem.resourceType != "separator" {
-			m = m.updateOperationsList(resourceItem.title)
-		}
+	case 2: // Response history is active - no special action needed
+		// History selection is handled in handleListUpdates
 	}
 	return m, nil
 }

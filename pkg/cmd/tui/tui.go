@@ -25,8 +25,6 @@ func NewTuiCmd(config config.Profile) *cobra.Command {
 }
 
 func runTui(cmd *cobra.Command, profile config.Profile) error {
-	apiKey := profile.APIKey
-
 	// Create list items for V1 resources using the same logic as resources command
 	items := []list.Item{}
 
@@ -170,12 +168,7 @@ func runTui(cmd *cobra.Command, profile config.Profile) error {
 		}
 	}
 
-	// Show API key info at the top
-	fmt.Printf("🔑 API Key: %s... (Live mode: %v)\n", apiKey[:min(7, len(apiKey))], profile.APIKey)
-	fmt.Println("📡 Use ↑/↓ to navigate, ←/→/Tab to switch panels (Resources/Operations/History), Enter to execute, c to clear, q to quit")
-	fmt.Println()
-
-	p := tea.NewProgram(m)
+	p := tea.NewProgram(m, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("TUI error: %w", err)
 	}
