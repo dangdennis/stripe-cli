@@ -14,11 +14,11 @@ type deleteCmd struct {
 }
 
 func newDeleteCmd() *deleteCmd {
-	gc := &deleteCmd{}
+	dc := &deleteCmd{}
 
-	gc.reqs.Method = http.MethodDelete
-	gc.reqs.Profile = &Config.Profile
-	gc.reqs.Cmd = &cobra.Command{
+	dc.reqs.Method = http.MethodDelete
+	dc.reqs.Profile = &Config.Profile
+	dc.reqs.Cmd = &cobra.Command{
 		Use:   "delete <path>",
 		Args:  validators.ExactArgs(1),
 		Short: "Make a DELETE request to the Stripe API",
@@ -30,10 +30,10 @@ https://stripe.com/docs/api
 To delete a charge:
 
   $ stripe delete /customers/cus_FROPkgsHVRRspg`,
-		RunE: gc.reqs.RunRequestsCmd,
+		RunE: dc.reqs.RunRequestsCmd,
 	}
 
-	gc.reqs.InitFlags()
+	dc.reqs.InitFlags()
 
-	return gc
+	return dc
 }
