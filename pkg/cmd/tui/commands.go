@@ -53,6 +53,17 @@ func (m model) executeCommand(resourceName, operationName string) (commandResult
 	}
 	url := fmt.Sprintf("https://api.stripe.com/%s/%s", apiVersion, strings.ReplaceAll(resourceName, " ", "/"))
 
+	// Log the command we're about to execute
+	if m.logger != nil {
+		m.logger.LogAction("executing_command", map[string]interface{}{
+			"command_args": cmdArgs,
+			"resource":     resourceName,
+			"operation":    operationName,
+			"method":       method,
+			"url":          url,
+		})
+	}
+
 	// Find the command in the root command tree
 	targetCmd, _, err := m.rootCmd.Find(cmdArgs)
 	if err != nil {
@@ -64,6 +75,14 @@ func (m model) executeCommand(resourceName, operationName string) (commandResult
 			})
 		}
 		return commandResult{}, fmt.Errorf("command not found: %v", err)
+	}
+
+	if m.logger != nil {
+		m.logger.LogAction("found_target_command", map[string]interface{}{
+			"target_command": targetCmd.CommandPath(),
+			"use":            targetCmd.Use,
+			"is_runnable":    targetCmd.Runnable(),
+		})
 	}
 
 	// Capture stdout and stderr
@@ -81,6 +100,11 @@ func (m model) executeCommand(resourceName, operationName string) (commandResult
 
 	// Execute the command
 	targetCmd.SetArgs([]string{}) // No additional args for now
+	if m.logger != nil {
+		m.logger.LogAction("about_to_execute", map[string]interface{}{
+			"target_command": targetCmd.CommandPath(),
+		})
+	}
 	err = targetCmd.ExecuteContext(ctx)
 
 	// Restore original outputs

@@ -25,6 +25,18 @@ func (m model) View() string {
 		return quitTextStyle.Render("Thanks for using Stripe CLI TUI!")
 	}
 
+	// Command preview line
+	commandPreview := m.getCommandPreview()
+	previewStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("170")).
+		Background(lipgloss.Color("236")).
+		Bold(true).
+		Width(m.width).
+		Padding(0, 2).
+		Align(lipgloss.Left)
+
+	previewLine := previewStyle.Render(commandPreview)
+
 	// Top panels - side-by-side layout
 	resourceView := m.resourceList.View()
 	operationView := m.operationList.View()
@@ -60,8 +72,8 @@ func (m model) View() string {
 
 	historyPanel := historyBorder.Render(historyView)
 
-	// Create the main layout with three sections
-	mainLayout := lipgloss.JoinVertical(lipgloss.Left, topPanels, historyPanel)
+	// Create the main layout with preview line, panels, and history
+	mainLayout := lipgloss.JoinVertical(lipgloss.Left, previewLine, topPanels, historyPanel)
 
 	// If no output to show, return layout without output panel
 	if !m.showOutput {

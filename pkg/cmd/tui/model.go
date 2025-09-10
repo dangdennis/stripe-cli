@@ -218,35 +218,68 @@ func (m model) handleClearOutput() (tea.Model, tea.Cmd) {
 
 func (m model) handleEnterKey() (tea.Model, tea.Cmd) {
 	switch m.activeList {
-	case 0: // Resource list is active
-		if resourceItem, ok := m.resourceList.SelectedItem().(item); ok && resourceItem.resourceType != "separator" {
+	case 0, 1: // Resource list or Operation list is active - allow execution from both
+		resourceItem, resourceOk := m.resourceList.SelectedItem().(item)
+		operationItem, operationOk := m.operationList.SelectedItem().(item)
+
+		if m.logger != nil {
+			m.logger.LogAction("enter_key", map[string]interface{}{
+				"active_list":    m.activeList,
+				"resource_item":  resourceItem.title,
+				"operation_item": operationItem.title,
+			})
+		}
+
+		// Execute if both resource and operation are selected
+		if resourceOk && operationOk && resourceItem.resourceType != "separator" {
+			if m.logger != nil {
+				if m.activeList == 0 {
+					m.logger.LogListSelection("resource", resourceItem.title, m.resourceList.Index())
+				} else {
+					m.logger.LogListSelection("operation", operationItem.title, m.operationList.Index())
+				}
+			}
+			return m.executeAndAddToHistory(resourceItem, operationItem)
+		}
+
+		// If only resource is selected, update operations list and potentially switch to operations list
+		if resourceOk && resourceItem.resourceType != "separator" {
 			if m.logger != nil {
 				m.logger.LogListSelection("resource", resourceItem.title, m.resourceList.Index())
 			}
 			// Update operations list when resource is selected
 			m = m.updateOperationsList(resourceItem.title)
-			// Switch to operations list
-			oldView := getViewName(m.activeList)
-			m.activeList = 1
-			newView := getViewName(m.activeList)
 
-			if m.logger != nil {
-				m.logger.LogViewChange(oldView, newView, "resource_selection")
+			// If we're on the resource list and there are operations, switch to operations list
+			if m.activeList == 0 && len(m.operationList.Items()) > 0 {
+				oldView := getViewName(m.activeList)
+				m.activeList = 1
+				newView := getViewName(m.activeList)
+
+				if m.logger != nil {
+					m.logger.LogViewChange(oldView, newView, "resource_selection")
+				}
+			}
+
+			// If there's only one operation available, auto-execute it
+			if len(m.operationList.Items()) == 1 {
+				if firstOp := m.operationList.Items()[0]; firstOp != nil {
+					if firstOpItem, ok := firstOp.(item); ok {
+						if m.logger != nil {
+							m.logger.LogListSelection("operation", firstOpItem.title, 0)
+							m.logger.LogAction("auto_select_single_operation", map[string]interface{}{
+								"resource":  resourceItem.title,
+								"operation": firstOpItem.title,
+							})
+						}
+						return m.executeAndAddToHistory(resourceItem, firstOpItem)
+					}
+				}
 			}
 		}
-	case 1: // Operation list is active
-		resourceItem, resourceOk := m.resourceList.SelectedItem().(item)
-		operationItem, operationOk := m.operationList.SelectedItem().(item)
 
-		// Execute if both resource and operation are selected
-		if resourceOk && operationOk && resourceItem.resourceType != "separator" {
-			if m.logger != nil {
-				m.logger.LogListSelection("operation", operationItem.title, m.operationList.Index())
-			}
-			return m.executeAndAddToHistory(resourceItem, operationItem)
-		}
-		// If no operation selected but operations exist, use the first one
-		if resourceOk && resourceItem.resourceType != "separator" && len(m.operationList.Items()) > 0 {
+		// If no operation selected but operations exist, use the first one (fallback for operation list only)
+		if m.activeList == 1 && resourceOk && resourceItem.resourceType != "separator" && len(m.operationList.Items()) > 0 {
 			if firstOp := m.operationList.Items()[0]; firstOp != nil {
 				if firstOpItem, ok := firstOp.(item); ok {
 					if m.logger != nil {
@@ -393,4 +426,20 @@ func (m model) updateResponseHistoryList() model {
 	}
 	m.responseHistory.SetItems(historyItems)
 	return m
+}
+
+// getCommandPreview returns the current command preview string
+func (m model) getCommandPreview() string {
+	resourceItem, resourceOk := m.resourceList.SelectedItem().(item)
+	operationItem, operationOk := m.operationList.SelectedItem().(item)
+
+	if !resourceOk || resourceItem.resourceType == "separator" {
+		return "stripe"
+	}
+
+	if !operationOk {
+		return fmt.Sprintf("stripe %s", resourceItem.title)
+	}
+
+	return fmt.Sprintf("stripe %s %s", resourceItem.title, operationItem.title)
 }
