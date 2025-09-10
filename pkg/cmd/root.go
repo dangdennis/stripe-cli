@@ -207,7 +207,7 @@ func init() {
 	// hide status command until status site v2 is released
 	// rootCmd.AddCommand(newStatusCmd().cmd)
 	rootCmd.AddCommand(newTriggerCmd().cmd)
-	rootCmd.AddCommand(newTuiCmd().cmd)
+	rootCmd.AddCommand(newTuiCmd(&Config).cmd)
 	rootCmd.AddCommand(newVersionCmd().cmd)
 	rootCmd.AddCommand(newPostinstallCmd(&Config).cmd)
 	rootCmd.AddCommand(newCommunityCmd().cmd)
