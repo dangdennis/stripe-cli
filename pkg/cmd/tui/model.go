@@ -7,6 +7,8 @@ import (
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
+
+	"github.com/stripe/stripe-cli/pkg/config"
 )
 
 type item struct {
@@ -49,6 +51,7 @@ type model struct {
 	width            int
 	height           int
 	rootCmd          *cobra.Command
+	profile          *config.Profile
 	showOutput       bool
 	outputScroll     int
 	showWelcome      bool

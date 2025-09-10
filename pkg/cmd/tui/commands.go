@@ -1,11 +1,12 @@
 package tui
 
 import (
-	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -18,32 +19,13 @@ type commandResult struct {
 }
 
 func (m model) executeCommand(resourceName, operationName string) (commandResult, error) {
-	// Parse resource name to build command path
-	cmdArgs := []string{}
-
-	if strings.HasPrefix(resourceName, "v2 ") {
-		// Handle V2 resources: "v2 namespace resource" or "v2 resource"
-		parts := strings.Fields(strings.TrimPrefix(resourceName, "v2 "))
-		cmdArgs = append(cmdArgs, "v2")
-		cmdArgs = append(cmdArgs, parts...)
-		cmdArgs = append(cmdArgs, operationName)
-	} else {
-		// Handle V1 resources: "namespace resource" or "resource"
-		parts := strings.Fields(resourceName)
-		cmdArgs = append(cmdArgs, parts...)
-		cmdArgs = append(cmdArgs, operationName)
+	// Only support GET requests for now
+	if !strings.Contains(operationName, "list") && !strings.Contains(operationName, "retrieve") && !strings.Contains(operationName, "get") {
+		return commandResult{}, fmt.Errorf("only GET operations (list, retrieve, get) are supported in TUI mode")
 	}
 
 	// Build metadata
 	method := "GET"
-	switch operationName {
-	case "create", "post":
-		method = "POST"
-	case "update", "patch":
-		method = "PATCH"
-	case "delete":
-		method = "DELETE"
-	}
 
 	// Construct API URL
 	apiVersion := "v1"
@@ -51,96 +33,114 @@ func (m model) executeCommand(resourceName, operationName string) (commandResult
 		apiVersion = "v2"
 		resourceName = strings.TrimPrefix(resourceName, "v2 ")
 	}
-	url := fmt.Sprintf("https://api.stripe.com/%s/%s", apiVersion, strings.ReplaceAll(resourceName, " ", "/"))
 
-	// Log the command we're about to execute
+	// Convert resource name to API endpoint
+	resourcePath := strings.ReplaceAll(resourceName, " ", "/")
+	url := fmt.Sprintf("https://api.stripe.com/%s/%s", apiVersion, resourcePath)
+
+	// Log the HTTP request we're about to make
 	if m.logger != nil {
-		m.logger.LogAction("executing_command", map[string]interface{}{
-			"command_args": cmdArgs,
-			"resource":     resourceName,
-			"operation":    operationName,
-			"method":       method,
-			"url":          url,
+		m.logger.LogAction("making_http_request", map[string]interface{}{
+			"resource":  resourceName,
+			"operation": operationName,
+			"method":    method,
+			"url":       url,
 		})
 	}
 
-	// Find the command in the root command tree
-	targetCmd, _, err := m.rootCmd.Find(cmdArgs)
+	// Get API key from profile
+	apiKey, err := m.profile.GetAPIKey(false) // Use test mode for now
 	if err != nil {
 		if m.logger != nil {
-			m.logger.LogError("command_lookup", err, map[string]interface{}{
-				"command_args": cmdArgs,
-				"resource":     resourceName,
-				"operation":    operationName,
+			m.logger.LogError("get_api_key", err, map[string]interface{}{
+				"resource":  resourceName,
+				"operation": operationName,
 			})
 		}
-		return commandResult{}, fmt.Errorf("command not found: %v", err)
+		return commandResult{}, fmt.Errorf("failed to get API key: %v", err)
 	}
 
-	if m.logger != nil {
-		m.logger.LogAction("found_target_command", map[string]interface{}{
-			"target_command": targetCmd.CommandPath(),
-			"use":            targetCmd.Use,
-			"is_runnable":    targetCmd.Runnable(),
-		})
-	}
-
-	// Capture stdout and stderr
-	var stdout, stderr bytes.Buffer
-
-	// Create a new command context
-	ctx := context.Background()
-
-	// Set the output for the command
-	originalStdout := targetCmd.OutOrStdout()
-	originalStderr := targetCmd.ErrOrStderr()
-
-	targetCmd.SetOut(&stdout)
-	targetCmd.SetErr(&stderr)
-
-	// Execute the command
-	targetCmd.SetArgs([]string{}) // No additional args for now
-	if m.logger != nil {
-		m.logger.LogAction("about_to_execute", map[string]interface{}{
-			"target_command": targetCmd.CommandPath(),
-		})
-	}
-	err = targetCmd.ExecuteContext(ctx)
-
-	// Restore original outputs
-	targetCmd.SetOut(originalStdout)
-	targetCmd.SetErr(originalStderr)
-
+	// Create HTTP request
+	req, err := http.NewRequest(method, url, nil)
 	if err != nil {
-		errorOutput := stderr.String()
-		if errorOutput == "" {
-			errorOutput = err.Error()
-		}
-
 		if m.logger != nil {
-			m.logger.LogError("command_execution", err, map[string]interface{}{
-				"command_args": cmdArgs,
-				"resource":     resourceName,
-				"operation":    operationName,
-				"method":       method,
-				"url":          url,
-				"stdout":       stdout.String(),
-				"stderr":       errorOutput,
+			m.logger.LogError("create_request", err, map[string]interface{}{
+				"method": method,
+				"url":    url,
 			})
 		}
+		return commandResult{}, fmt.Errorf("failed to create request: %v", err)
+	}
 
+	// Set authorization header
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("User-Agent", "Stripe-TUI/1.0")
+
+	// Make HTTP request
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	if m.logger != nil {
+		m.logger.LogAction("sending_http_request", map[string]interface{}{
+			"url": url,
+		})
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		if m.logger != nil {
+			m.logger.LogError("http_request", err, map[string]interface{}{
+				"method": method,
+				"url":    url,
+			})
+		}
+		return commandResult{}, fmt.Errorf("HTTP request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Read response body
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		if m.logger != nil {
+			m.logger.LogError("read_response", err, map[string]interface{}{
+				"status_code": resp.StatusCode,
+				"url":         url,
+			})
+		}
+		return commandResult{}, fmt.Errorf("failed to read response: %v", err)
+	}
+
+	// Handle HTTP errors
+	if resp.StatusCode >= 400 {
+		if m.logger != nil {
+			m.logger.LogError("http_error_response", fmt.Errorf("HTTP %d", resp.StatusCode), map[string]interface{}{
+				"status_code": resp.StatusCode,
+				"url":         url,
+				"response":    string(body),
+			})
+		}
 		return commandResult{
-			output: errorOutput,
+			output: fmt.Sprintf("HTTP %d Error:\n%s", resp.StatusCode, string(body)),
 			method: method,
 			url:    url,
-		}, err
+		}, fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)
+	}
+
+	if m.logger != nil {
+		m.logger.LogAction("successful_http_request", map[string]interface{}{
+			"status_code":   resp.StatusCode,
+			"url":           url,
+			"response_size": len(body),
+		})
 	}
 
 	return commandResult{
-		output:      m.formatOutput(stdout.String()),
+		output:      m.formatOutput(string(body)),
 		method:      method,
 		url:         url,
-		requestBody: "", // TODO: Could be enhanced to capture actual request body
+		requestBody: "", // Empty for GET requests
 	}, nil
 }
 

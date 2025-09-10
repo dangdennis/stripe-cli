@@ -24,7 +24,7 @@ func NewTuiCmd(config config.Profile) *cobra.Command {
 	return cmd
 }
 
-func runTui(cmd *cobra.Command, _ config.Profile) error {
+func runTui(cmd *cobra.Command, profile config.Profile) error {
 	// Initialize logger
 	logger, err := NewTUILogger()
 	if err != nil {
@@ -162,6 +162,7 @@ func runTui(cmd *cobra.Command, _ config.Profile) error {
 		responseHistory:  responseHistory,
 		activeList:       0, // Start with resource list active
 		rootCmd:          cmd.Root(),
+		profile:          &profile,
 		showWelcome:      true, // Show welcome screen initially
 		animFrame:        0,
 		historyEntries:   []responseHistoryEntry{},
