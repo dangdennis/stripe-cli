@@ -628,7 +628,8 @@ func (m model) handleScrollKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 }
 
 func (m model) applyFilter() model {
-	if m.activeList == 0 { // Resource list
+	switch m.activeList {
+	case 0: // Resource list
 		filtered := make([]list.Item, 0)
 		for _, rItem := range m.allResourceItems {
 			if resourceItem, ok := rItem.(resourceListItem); ok {
@@ -639,7 +640,18 @@ func (m model) applyFilter() model {
 			}
 		}
 		m.resourceList.SetItems(filtered)
-	} else if m.activeList == 1 { // Operation list
+
+		// Auto-select the first filtered resource and update operations
+		if len(filtered) > 0 {
+			m.resourceList.Select(0) // Select first item
+			if firstItem, ok := filtered[0].(resourceListItem); ok && firstItem.resourceType != "separator" {
+				m = m.updateOperationsList(firstItem.title)
+			}
+		} else {
+			// No filtered items, clear operations list
+			m.operationList.SetItems([]list.Item{})
+		}
+	case 1: // Operation list
 		filtered := make([]list.Item, 0)
 		for _, rItem := range m.allOperationItems {
 			if operationItem, ok := rItem.(resourceListItem); ok {
@@ -655,9 +667,14 @@ func (m model) applyFilter() model {
 }
 
 func (m model) resetFilteredLists() model {
-	if m.activeList == 0 { // Resource list
+	switch m.activeList {
+	case 0: // Resource list
 		m.resourceList.SetItems(m.allResourceItems)
-	} else if m.activeList == 1 { // Operation list
+		// Update operations list for the currently selected resource after reset
+		if selectedItem, ok := m.resourceList.SelectedItem().(resourceListItem); ok && selectedItem.resourceType != "separator" {
+			m = m.updateOperationsList(selectedItem.title)
+		}
+	case 1: // Operation list
 		m.operationList.SetItems(m.allOperationItems)
 	}
 	return m
