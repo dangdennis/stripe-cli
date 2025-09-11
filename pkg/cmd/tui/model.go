@@ -135,10 +135,10 @@ func (m model) handleWindowResize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	}
 	m.responseHistory.SetWidth(historyWidth - 2) // Account for borders
 
-	// Calculate heights
-	bottomHeight := msg.Height / 3
-	if bottomHeight < 5 {
-		bottomHeight = 5
+	// Calculate heights - half and half split
+	bottomHeight := msg.Height / 2
+	if bottomHeight < 8 {
+		bottomHeight = 8
 	}
 	listHeight := msg.Height - 6 - bottomHeight // Account for preview line and borders
 

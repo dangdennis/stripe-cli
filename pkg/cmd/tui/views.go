@@ -93,10 +93,10 @@ func (m model) View() string {
 	// Join top panels horizontally
 	topPanels := lipgloss.JoinHorizontal(lipgloss.Top, resourcePanel, operationPanel)
 
-	// Create bottom area layout (history + output)
-	bottomHeight := m.height / 3
-	if bottomHeight < 5 {
-		bottomHeight = 5
+	// Create bottom area layout (history + output) - half of screen for output console
+	bottomHeight := m.height / 2
+	if bottomHeight < 8 {
+		bottomHeight = 8
 	}
 
 	// History panel dimensions (narrow left side)
@@ -161,7 +161,7 @@ func (m model) View() string {
 	outputLines := strings.Split(outputContent, "\n")
 
 	// Calculate visible content based on scroll position
-	visibleHeight := bottomHeight - 4 // Account for title, padding and borders
+	visibleHeight := bottomHeight - 5 // Account for title, padding and borders
 	if visibleHeight < 1 {
 		visibleHeight = 1
 	}
