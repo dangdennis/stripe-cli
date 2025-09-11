@@ -222,18 +222,16 @@ func (m model) handleSpecialKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 	case "enter":
 		newModel, cmd := m.handleEnterKey()
 		return newModel, cmd, true
-	case "f":
+	case "/":
 		// Enable filter mode when in resource list
-		if m.activeList == 0 {
-			m.filterMode = true
-			m.filterText = ""
-			if m.logger != nil {
-				m.logger.LogAction("enter_filter_mode", map[string]interface{}{
-					"active_list": m.activeList,
-				})
-			}
-			return m, nil, true
+		m.filterMode = true
+		m.filterText = ""
+		if m.logger != nil {
+			m.logger.LogAction("enter_filter_mode", map[string]interface{}{
+				"active_list": m.activeList,
+			})
 		}
+		return m, nil, true
 	}
 	return m, nil, false // Key not handled, let lists process it
 }

@@ -123,7 +123,7 @@ func (m model) View() string {
 	// If no output to show, just show history panel alone
 	if !m.showOutput {
 		// Add help text
-		helpText := "Tab: Switch panels • f: Filter resources • ↑↓/jk: Navigate lists • Enter: Execute • c: Clear • q: Quit"
+		helpText := "Tab: Switch panels • /: Filter resources • ↑↓/jk: Navigate lists • Enter: Execute • c: Clear • q: Quit"
 		if m.filterMode {
 			helpText = "Type to filter • Enter: Apply • Esc: Cancel"
 		}
@@ -212,7 +212,7 @@ func (m model) View() string {
 	bottomPanel := lipgloss.JoinHorizontal(lipgloss.Top, historyPanel, outputPanel)
 
 	// Add help text
-	helpText := "Tab: Switch panels • f: Filter resources • ↑↓/jk: Navigate lists/scroll output • PgUp/PgDn: Page scroll • Home/End: Top/bottom • c: Clear • q: Quit"
+	helpText := "Tab: Switch panels • /: Filter resources • ↑↓/jk: Navigate lists/scroll output • PgUp/PgDn: Page scroll • Home/End: Top/bottom • c: Clear • q: Quit"
 	if m.filterMode {
 		helpText = "Type to filter • Enter: Apply • Esc: Cancel"
 	}
