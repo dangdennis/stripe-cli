@@ -52,6 +52,7 @@ type model struct {
 	height           int
 	rootCmd          *cobra.Command
 	profile          *config.Profile
+	livemode         bool
 	showOutput       bool
 	outputScroll     int
 	showWelcome      bool
@@ -322,7 +323,7 @@ func (m model) executeAndAddToHistory(resourceItem, operationItem item) (tea.Mod
 
 	// Time the command execution
 	startTime := time.Now()
-	result, err := m.executeCommand(resourceItem.title, operationItem.title)
+	result, err := m.executeOperation(resourceItem.title, operationItem.title)
 	duration := time.Since(startTime)
 
 	// Log the command execution

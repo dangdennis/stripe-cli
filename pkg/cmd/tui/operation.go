@@ -11,17 +11,17 @@ import (
 	"github.com/spf13/cobra"
 )
 
-type commandResult struct {
+type httpResponse struct {
 	output      string
 	method      string
 	url         string
 	requestBody string
 }
 
-func (m model) executeCommand(resourceName, operationName string) (commandResult, error) {
+func (m model) executeOperation(resourceName, operationName string) (httpResponse, error) {
 	// Only support GET requests for now
 	if !strings.Contains(operationName, "list") && !strings.Contains(operationName, "retrieve") && !strings.Contains(operationName, "get") {
-		return commandResult{}, fmt.Errorf("only GET operations (list, retrieve, get) are supported in TUI mode")
+		return httpResponse{}, fmt.Errorf("only GET operations (list, retrieve, get) are supported in TUI mode")
 	}
 
 	// Build metadata
@@ -45,19 +45,21 @@ func (m model) executeCommand(resourceName, operationName string) (commandResult
 			"operation": operationName,
 			"method":    method,
 			"url":       url,
+			"livemode":  m.livemode,
 		})
 	}
 
-	// Get API key from profile
-	apiKey, err := m.profile.GetAPIKey(false) // Use test mode for now
+	// Get API key from profile using live/test mode based on flag
+	apiKey, err := m.profile.GetAPIKey(m.livemode)
 	if err != nil {
 		if m.logger != nil {
 			m.logger.LogError("get_api_key", err, map[string]interface{}{
 				"resource":  resourceName,
 				"operation": operationName,
+				"livemode":  m.livemode,
 			})
 		}
-		return commandResult{}, fmt.Errorf("failed to get API key: %v", err)
+		return httpResponse{}, fmt.Errorf("failed to get API key: %v", err)
 	}
 
 	// Create HTTP request
@@ -69,7 +71,7 @@ func (m model) executeCommand(resourceName, operationName string) (commandResult
 				"url":    url,
 			})
 		}
-		return commandResult{}, fmt.Errorf("failed to create request: %v", err)
+		return httpResponse{}, fmt.Errorf("failed to create request: %v", err)
 	}
 
 	// Set authorization header
@@ -96,7 +98,7 @@ func (m model) executeCommand(resourceName, operationName string) (commandResult
 				"url":    url,
 			})
 		}
-		return commandResult{}, fmt.Errorf("HTTP request failed: %v", err)
+		return httpResponse{}, fmt.Errorf("HTTP request failed: %v", err)
 	}
 	defer resp.Body.Close()
 
@@ -109,7 +111,7 @@ func (m model) executeCommand(resourceName, operationName string) (commandResult
 				"url":         url,
 			})
 		}
-		return commandResult{}, fmt.Errorf("failed to read response: %v", err)
+		return httpResponse{}, fmt.Errorf("failed to read response: %v", err)
 	}
 
 	// Handle HTTP errors
@@ -121,7 +123,7 @@ func (m model) executeCommand(resourceName, operationName string) (commandResult
 				"response":    string(body),
 			})
 		}
-		return commandResult{
+		return httpResponse{
 			output: fmt.Sprintf("HTTP %d Error:\n%s", resp.StatusCode, string(body)),
 			method: method,
 			url:    url,
@@ -136,7 +138,7 @@ func (m model) executeCommand(resourceName, operationName string) (commandResult
 		})
 	}
 
-	return commandResult{
+	return httpResponse{
 		output:      m.formatOutput(string(body)),
 		method:      method,
 		url:         url,

@@ -8,23 +8,33 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/stripe/stripe-cli/pkg/config"
+	"github.com/stripe/stripe-cli/pkg/validators"
 )
 
+type TUICmd struct {
+	Cmd      *cobra.Command
+	livemode bool
+}
+
 // NewTuiCmd creates a new TUI command
-func NewTuiCmd(config config.Profile) *cobra.Command {
-	cmd := &cobra.Command{
+func NewTuiCmd(config config.Profile) *TUICmd {
+	tuiCmd := &TUICmd{}
+	tuiCmd.Cmd = &cobra.Command{
 		Use:   "tui",
 		Short: "Start the Stripe TUI",
 		Long:  `Launch an interactive terminal user interface for the Stripe CLI`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runTui(cmd, config)
+			return tuiCmd.RunTUI(cmd, config)
 		},
 	}
 
-	return cmd
+	tuiCmd.Cmd.Flags().BoolVar(&tuiCmd.livemode, "live", false, "Make live requests (default: test)")
+	tuiCmd.Cmd.Args = validators.NoArgs
+
+	return tuiCmd
 }
 
-func runTui(cmd *cobra.Command, profile config.Profile) error {
+func (tuiCmd *TUICmd) RunTUI(cmd *cobra.Command, profile config.Profile) error {
 	// Initialize logger
 	logger, err := NewTUILogger()
 	if err != nil {
@@ -163,6 +173,7 @@ func runTui(cmd *cobra.Command, profile config.Profile) error {
 		activeList:       0, // Start with resource list active
 		rootCmd:          cmd.Root(),
 		profile:          &profile,
+		livemode:         tuiCmd.livemode,
 		showWelcome:      true, // Show welcome screen initially
 		animFrame:        0,
 		historyEntries:   []responseHistoryEntry{},

@@ -155,7 +155,7 @@ func (l *TUILogger) LogError(operation string, err error, details map[string]int
 }
 
 // LogCommand logs command executions
-func (l *TUILogger) LogCommand(command string, result *commandResult, err error, duration time.Duration) {
+func (l *TUILogger) LogCommand(command string, result *httpResponse, err error, duration time.Duration) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
