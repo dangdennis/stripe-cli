@@ -222,9 +222,9 @@ func (m model) handleSpecialKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 	case "enter":
 		newModel, cmd := m.handleEnterKey()
 		return newModel, cmd, true
-	case "/":
-		// Enable filter mode when in resource or operation list
-		if m.activeList == 0 || m.activeList == 1 {
+	case "f":
+		// Enable filter mode when in resource list
+		if m.activeList == 0 {
 			m.filterMode = true
 			m.filterText = ""
 			if m.logger != nil {
@@ -423,6 +423,7 @@ func (m model) handleListUpdates(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m.activeList {
 	case 0:
 		m.resourceList, cmd = m.resourceList.Update(msg)
+		// Always update operations list when resource selection changes, even when filtering
 		if selectedItem, ok := m.resourceList.SelectedItem().(resourceListItem); ok && selectedItem.resourceType != "separator" {
 			m = m.updateOperationsList(selectedItem.title)
 		}

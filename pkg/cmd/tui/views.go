@@ -37,6 +37,23 @@ func (m model) View() string {
 
 	previewLine := previewStyle.Render(commandPreview)
 
+	// Filter status line (shown when filtering)
+	var filterLine string
+	if m.filterMode && m.activeList == 0 {
+		filterText := m.filterText
+		if filterText == "" {
+			filterText = "_"
+		}
+		filterStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("226")).
+			Background(lipgloss.Color("235")).
+			Bold(true).
+			Width(m.width).
+			Padding(0, 2).
+			Align(lipgloss.Left)
+		filterLine = filterStyle.Render(fmt.Sprintf("🔍 Filter Resources: %s (type to search, Esc to cancel, Enter to apply)", filterText))
+	}
+
 	// Top panels - side-by-side layout
 	resourceView := m.resourceList.View()
 	operationView := m.operationList.View()
@@ -45,17 +62,12 @@ func (m model) View() string {
 	resourceBorder := lipgloss.NewStyle().Border(lipgloss.NormalBorder()).Width((m.width - 4) / 2)
 	operationBorder := lipgloss.NewStyle().Border(lipgloss.NormalBorder()).Width((m.width - 4) / 2)
 
-	// Add filter indicator to titles
+	// Set titles
 	resourceTitle := "Resources"
 	operationTitle := "Operations"
 
-	if m.filterMode {
-		switch m.activeList {
-		case 0:
-			resourceTitle = fmt.Sprintf("Resources (Filter: %s)", m.filterText)
-		case 1:
-			operationTitle = fmt.Sprintf("Operations (Filter: %s)", m.filterText)
-		}
+	if m.filterMode && m.activeList == 0 {
+		resourceTitle = "Resources (filtering...)"
 	}
 
 	switch m.activeList {
@@ -111,7 +123,7 @@ func (m model) View() string {
 	// If no output to show, just show history panel alone
 	if !m.showOutput {
 		// Add help text
-		helpText := "Tab: Switch panels • /: Filter • Enter: Execute • c: Clear • q: Quit"
+		helpText := "Tab: Switch panels • f: Filter resources • ↑↓/jk: Navigate lists • Enter: Execute • c: Clear • q: Quit"
 		if m.filterMode {
 			helpText = "Type to filter • Enter: Apply • Esc: Cancel"
 		}
@@ -122,8 +134,15 @@ func (m model) View() string {
 
 		helpLine := helpStyle.Render(helpText)
 
-		// Create the main layout with preview line, top panels, and just history
-		mainLayout := lipgloss.JoinVertical(lipgloss.Left, previewLine, topPanels, historyPanel, helpLine)
+		// Create the main layout with preview line, optional filter line, top panels, and just history
+		var layoutElements []string
+		layoutElements = append(layoutElements, previewLine)
+		if filterLine != "" {
+			layoutElements = append(layoutElements, filterLine)
+		}
+		layoutElements = append(layoutElements, topPanels, historyPanel, helpLine)
+
+		mainLayout := lipgloss.JoinVertical(lipgloss.Left, layoutElements...)
 		return mainLayout
 	}
 
@@ -193,7 +212,7 @@ func (m model) View() string {
 	bottomPanel := lipgloss.JoinHorizontal(lipgloss.Top, historyPanel, outputPanel)
 
 	// Add help text
-	helpText := "Tab: Switch panels • /: Filter • ↑↓/jk: Navigate lists/scroll output • PgUp/PgDn: Page scroll • Home/End: Top/bottom • c: Clear • q: Quit"
+	helpText := "Tab: Switch panels • f: Filter resources • ↑↓/jk: Navigate lists/scroll output • PgUp/PgDn: Page scroll • Home/End: Top/bottom • c: Clear • q: Quit"
 	if m.filterMode {
 		helpText = "Type to filter • Enter: Apply • Esc: Cancel"
 	}
