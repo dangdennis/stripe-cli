@@ -48,7 +48,7 @@ type model struct {
 	choice           string
 	commandOutput    string
 	quitting         bool
-	activeList       int // 0 for resource list, 1 for operation list, 2 for response history
+	activeList       int // 0 for resource list, 1 for operation list, 2 for response history, 3 for output console
 	width            int
 	height           int
 	rootCmd          *cobra.Command
@@ -180,16 +180,14 @@ func (m model) handleSpecialKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 		}
 	}
 
-	// Handle scroll keys when output is visible but only if no list is active for navigation
-	// Lists should take priority for j/k/up/down navigation
+	// Handle scroll keys when output is visible
 	if m.showOutput {
-		// Only handle output scrolling if we're not in a navigable list
-		// or if we add a special modifier (this preserves output scrolling capability)
 		if newModel, cmd, handled := m.handleScrollKeys(msg); handled {
-			// Only consume the key if it was actually meant for output scrolling
-			// For now, we'll let lists handle j/k/up/down and use page keys for output
+			// Handle output scrolling if:
+			// 1. Output console is selected (activeList == 3), OR
+			// 2. Using page-based keys (not j/k/up/down) from any panel
 			keyStr := msg.String()
-			if keyStr == "page_up" || keyStr == "page_down" || keyStr == "ctrl+b" || keyStr == "ctrl+f" || keyStr == "home" || keyStr == "end" || keyStr == "g" || keyStr == "G" {
+			if m.activeList == 3 || keyStr == "page_up" || keyStr == "page_down" || keyStr == "ctrl+b" || keyStr == "ctrl+f" || keyStr == "home" || keyStr == "end" || keyStr == "g" || keyStr == "G" {
 				return newModel, cmd, true
 			}
 		}
@@ -209,7 +207,12 @@ func (m model) handleSpecialKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 		return newModel, cmd, true
 	case "tab", "right", "left":
 		oldView := getViewName(m.activeList)
-		m.activeList = (m.activeList + 1) % 3
+		// Skip output console if no output is showing
+		if m.showOutput {
+			m.activeList = (m.activeList + 1) % 4
+		} else {
+			m.activeList = (m.activeList + 1) % 3
+		}
 		newView := getViewName(m.activeList)
 
 		if m.logger != nil {
@@ -450,6 +453,10 @@ func (m model) handleListUpdates(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.showOutput = true
 			m.outputScroll = 0
 		}
+	case 3:
+		// Output console is selected - no list to update, but we can still process other keys
+		// The output scrolling is handled in handleScrollKeys
+		cmd = nil
 	}
 	return m, cmd
 }

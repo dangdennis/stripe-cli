@@ -167,6 +167,9 @@ func (m model) View() string {
 	// Create output panel (taking remaining width)
 	outputWidth := m.width - historyWidth - 6 // Account for borders and spacing
 	outputBorderColor := lipgloss.Color("240")
+	if m.activeList == 3 {
+		outputBorderColor = lipgloss.Color("170") // Highlight when selected
+	}
 
 	outputBorder := lipgloss.NewStyle().
 		Border(lipgloss.NormalBorder()).
@@ -190,7 +193,7 @@ func (m model) View() string {
 	bottomPanel := lipgloss.JoinHorizontal(lipgloss.Top, historyPanel, outputPanel)
 
 	// Add help text
-	helpText := "Tab: Switch panels • /: Filter • ↑↓/jk: Navigate lists • PgUp/PgDn: Scroll output • Home/End: Output top/bottom • c: Clear • q: Quit"
+	helpText := "Tab: Switch panels • /: Filter • ↑↓/jk: Navigate lists/scroll output • PgUp/PgDn: Page scroll • Home/End: Top/bottom • c: Clear • q: Quit"
 	if m.filterMode {
 		helpText = "Type to filter • Enter: Apply • Esc: Cancel"
 	}

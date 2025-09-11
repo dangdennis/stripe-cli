@@ -247,6 +247,8 @@ func getViewName(activeList int) string {
 		return "operations"
 	case 2:
 		return "history"
+	case 3:
+		return "output"
 	default:
 		return "unknown"
 	}
