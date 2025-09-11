@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/list"
@@ -11,15 +12,15 @@ import (
 	"github.com/stripe/stripe-cli/pkg/config"
 )
 
-type item struct {
+type resourceListItem struct {
 	title        string
 	description  string
 	resourceType string
 }
 
-func (i item) FilterValue() string { return i.title }
-func (i item) Title() string       { return i.title }
-func (i item) Description() string { return i.description }
+func (i resourceListItem) FilterValue() string { return i.title }
+func (i resourceListItem) Title() string       { return i.title }
+func (i resourceListItem) Description() string { return i.description }
 
 type animTickMsg struct{}
 
@@ -60,6 +61,11 @@ type model struct {
 	historyEntries   []responseHistoryEntry
 	selectedResponse int
 	logger           *TUILogger
+	// Filter state
+	filterMode        bool
+	filterText        string
+	allResourceItems  []list.Item
+	allOperationItems []list.Item
 }
 
 func (m model) Init() tea.Cmd {
@@ -93,11 +99,14 @@ func (m model) updateOperationsList(resourceName string) model {
 	// Create operation items
 	operationItems := make([]list.Item, 0, len(operations))
 	for _, op := range operations {
-		operationItems = append(operationItems, item{
+		operationItems = append(operationItems, resourceListItem{
 			title:       op,
 			description: fmt.Sprintf("%s operation", op),
 		})
 	}
+
+	// Store all operation items for filtering
+	m.allOperationItems = operationItems
 
 	// Update the operations list
 	m.operationList.SetItems(operationItems)
@@ -149,10 +158,10 @@ func (m model) handleSpecialKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 			"show_output":  m.showOutput,
 		}
 		if !m.showWelcome {
-			if selectedItem, ok := m.resourceList.SelectedItem().(item); ok {
+			if selectedItem, ok := m.resourceList.SelectedItem().(resourceListItem); ok {
 				context["selected_resource"] = selectedItem.title
 			}
-			if selectedItem, ok := m.operationList.SelectedItem().(item); ok {
+			if selectedItem, ok := m.operationList.SelectedItem().(resourceListItem); ok {
 				context["selected_operation"] = selectedItem.title
 			}
 		}
@@ -162,6 +171,28 @@ func (m model) handleSpecialKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 	if m.showWelcome {
 		newModel, cmd := m.handleWelcomeKeys(msg)
 		return newModel, cmd, true
+	}
+
+	// Handle filtering mode
+	if m.filterMode {
+		if newModel, cmd, handled := m.handleFilterKeys(msg); handled {
+			return newModel, cmd, true
+		}
+	}
+
+	// Handle scroll keys when output is visible but only if no list is active for navigation
+	// Lists should take priority for j/k/up/down navigation
+	if m.showOutput {
+		// Only handle output scrolling if we're not in a navigable list
+		// or if we add a special modifier (this preserves output scrolling capability)
+		if newModel, cmd, handled := m.handleScrollKeys(msg); handled {
+			// Only consume the key if it was actually meant for output scrolling
+			// For now, we'll let lists handle j/k/up/down and use page keys for output
+			keyStr := msg.String()
+			if keyStr == "page_up" || keyStr == "page_down" || keyStr == "ctrl+b" || keyStr == "ctrl+f" || keyStr == "home" || keyStr == "end" || keyStr == "g" || keyStr == "G" {
+				return newModel, cmd, true
+			}
+		}
 	}
 
 	switch keyStr {
@@ -188,6 +219,18 @@ func (m model) handleSpecialKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 	case "enter":
 		newModel, cmd := m.handleEnterKey()
 		return newModel, cmd, true
+	case "/":
+		// Enable filter mode when in resource or operation list
+		if m.activeList == 0 || m.activeList == 1 {
+			m.filterMode = true
+			m.filterText = ""
+			if m.logger != nil {
+				m.logger.LogAction("enter_filter_mode", map[string]interface{}{
+					"active_list": m.activeList,
+				})
+			}
+			return m, nil, true
+		}
 	}
 	return m, nil, false // Key not handled, let lists process it
 }
@@ -233,8 +276,8 @@ func (m model) handleClearOutput() (tea.Model, tea.Cmd) {
 func (m model) handleEnterKey() (tea.Model, tea.Cmd) {
 	switch m.activeList {
 	case 0, 1: // Resource list or Operation list is active - allow execution from both
-		resourceItem, resourceOk := m.resourceList.SelectedItem().(item)
-		operationItem, operationOk := m.operationList.SelectedItem().(item)
+		resourceItem, resourceOk := m.resourceList.SelectedItem().(resourceListItem)
+		operationItem, operationOk := m.operationList.SelectedItem().(resourceListItem)
 
 		if m.logger != nil {
 			m.logger.LogAction("enter_key", map[string]interface{}{
@@ -278,7 +321,7 @@ func (m model) handleEnterKey() (tea.Model, tea.Cmd) {
 			// If there's only one operation available, auto-execute it
 			if len(m.operationList.Items()) == 1 {
 				if firstOp := m.operationList.Items()[0]; firstOp != nil {
-					if firstOpItem, ok := firstOp.(item); ok {
+					if firstOpItem, ok := firstOp.(resourceListItem); ok {
 						if m.logger != nil {
 							m.logger.LogListSelection("operation", firstOpItem.title, 0)
 							m.logger.LogAction("auto_select_single_operation", map[string]interface{}{
@@ -295,7 +338,7 @@ func (m model) handleEnterKey() (tea.Model, tea.Cmd) {
 		// If no operation selected but operations exist, use the first one (fallback for operation list only)
 		if m.activeList == 1 && resourceOk && resourceItem.resourceType != "separator" && len(m.operationList.Items()) > 0 {
 			if firstOp := m.operationList.Items()[0]; firstOp != nil {
-				if firstOpItem, ok := firstOp.(item); ok {
+				if firstOpItem, ok := firstOp.(resourceListItem); ok {
 					if m.logger != nil {
 						m.logger.LogListSelection("operation", firstOpItem.title, 0)
 						m.logger.LogAction("auto_select_first_operation", map[string]interface{}{
@@ -318,7 +361,7 @@ func (m model) handleEnterKey() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m model) executeAndAddToHistory(resourceItem, operationItem item) (tea.Model, tea.Cmd) {
+func (m model) executeAndAddToHistory(resourceItem, operationItem resourceListItem) (tea.Model, tea.Cmd) {
 	m.choice = resourceItem.title + " " + operationItem.title
 
 	// Time the command execution
@@ -377,7 +420,7 @@ func (m model) handleListUpdates(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m.activeList {
 	case 0:
 		m.resourceList, cmd = m.resourceList.Update(msg)
-		if selectedItem, ok := m.resourceList.SelectedItem().(item); ok && selectedItem.resourceType != "separator" {
+		if selectedItem, ok := m.resourceList.SelectedItem().(resourceListItem); ok && selectedItem.resourceType != "separator" {
 			m = m.updateOperationsList(selectedItem.title)
 		}
 	case 1:
@@ -451,8 +494,8 @@ func (m model) updateResponseHistoryList() model {
 
 // getCommandPreview returns the current command preview string
 func (m model) getCommandPreview() string {
-	resourceItem, resourceOk := m.resourceList.SelectedItem().(item)
-	operationItem, operationOk := m.operationList.SelectedItem().(item)
+	resourceItem, resourceOk := m.resourceList.SelectedItem().(resourceListItem)
+	operationItem, operationOk := m.operationList.SelectedItem().(resourceListItem)
 
 	if !resourceOk || resourceItem.resourceType == "separator" {
 		return "stripe"
@@ -463,4 +506,151 @@ func (m model) getCommandPreview() string {
 	}
 
 	return fmt.Sprintf("stripe %s %s", resourceItem.title, operationItem.title)
+}
+
+func (m model) handleFilterKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
+	keyStr := msg.String()
+
+	switch keyStr {
+	case "esc", "ctrl+c":
+		// Exit filter mode
+		m.filterMode = false
+		m.filterText = ""
+		m = m.resetFilteredLists()
+		if m.logger != nil {
+			m.logger.LogAction("exit_filter_mode", map[string]interface{}{
+				"active_list": m.activeList,
+			})
+		}
+		return m, nil, true
+	case "enter":
+		// Apply filter and exit filter mode
+		m.filterMode = false
+		if m.logger != nil {
+			m.logger.LogAction("apply_filter", map[string]interface{}{
+				"active_list": m.activeList,
+				"filter_text": m.filterText,
+			})
+		}
+		return m, nil, true
+	case "backspace":
+		// Remove last character
+		if len(m.filterText) > 0 {
+			m.filterText = m.filterText[:len(m.filterText)-1]
+			m = m.applyFilter()
+		}
+		return m, nil, true
+	default:
+		// Add typed character to filter
+		if len(keyStr) == 1 && keyStr >= " " && keyStr <= "~" {
+			m.filterText += keyStr
+			m = m.applyFilter()
+		}
+		return m, nil, true
+	}
+}
+
+func (m model) handleScrollKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
+	keyStr := msg.String()
+
+	switch keyStr {
+	case "up", "k":
+		if m.outputScroll > 0 {
+			m.outputScroll--
+		}
+		return m, nil, true
+	case "down", "j":
+		// Calculate max scroll based on content
+		outputLines := len(strings.Split(m.commandOutput, "\n"))
+		visibleHeight := (m.height / 3) - 4
+		if visibleHeight < 1 {
+			visibleHeight = 1
+		}
+		maxScroll := outputLines - visibleHeight
+		if maxScroll < 0 {
+			maxScroll = 0
+		}
+		if m.outputScroll < maxScroll {
+			m.outputScroll++
+		}
+		return m, nil, true
+	case "page_up", "ctrl+b":
+		visibleHeight := (m.height / 3) - 4
+		if visibleHeight < 1 {
+			visibleHeight = 1
+		}
+		m.outputScroll -= visibleHeight
+		if m.outputScroll < 0 {
+			m.outputScroll = 0
+		}
+		return m, nil, true
+	case "page_down", "ctrl+f":
+		outputLines := len(strings.Split(m.commandOutput, "\n"))
+		visibleHeight := (m.height / 3) - 4
+		if visibleHeight < 1 {
+			visibleHeight = 1
+		}
+		maxScroll := outputLines - visibleHeight
+		if maxScroll < 0 {
+			maxScroll = 0
+		}
+		m.outputScroll += visibleHeight
+		if m.outputScroll > maxScroll {
+			m.outputScroll = maxScroll
+		}
+		return m, nil, true
+	case "home", "g":
+		m.outputScroll = 0
+		return m, nil, true
+	case "end", "G":
+		outputLines := len(strings.Split(m.commandOutput, "\n"))
+		visibleHeight := (m.height / 3) - 4
+		if visibleHeight < 1 {
+			visibleHeight = 1
+		}
+		maxScroll := outputLines - visibleHeight
+		if maxScroll < 0 {
+			maxScroll = 0
+		}
+		m.outputScroll = maxScroll
+		return m, nil, true
+	}
+
+	return m, nil, false
+}
+
+func (m model) applyFilter() model {
+	if m.activeList == 0 { // Resource list
+		filtered := make([]list.Item, 0)
+		for _, rItem := range m.allResourceItems {
+			if resourceItem, ok := rItem.(resourceListItem); ok {
+				if strings.Contains(strings.ToLower(resourceItem.title), strings.ToLower(m.filterText)) ||
+					strings.Contains(strings.ToLower(resourceItem.description), strings.ToLower(m.filterText)) {
+					filtered = append(filtered, rItem)
+				}
+			}
+		}
+		m.resourceList.SetItems(filtered)
+	} else if m.activeList == 1 { // Operation list
+		filtered := make([]list.Item, 0)
+		for _, rItem := range m.allOperationItems {
+			if operationItem, ok := rItem.(resourceListItem); ok {
+				if strings.Contains(strings.ToLower(operationItem.title), strings.ToLower(m.filterText)) ||
+					strings.Contains(strings.ToLower(operationItem.description), strings.ToLower(m.filterText)) {
+					filtered = append(filtered, rItem)
+				}
+			}
+		}
+		m.operationList.SetItems(filtered)
+	}
+	return m
+}
+
+func (m model) resetFilteredLists() model {
+	if m.activeList == 0 { // Resource list
+		m.resourceList.SetItems(m.allResourceItems)
+	} else if m.activeList == 1 { // Operation list
+		m.operationList.SetItems(m.allOperationItems)
+	}
+	return m
 }

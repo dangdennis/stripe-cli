@@ -15,7 +15,7 @@ func (d listItemDelegate) Height() int                             { return 1 }
 func (d listItemDelegate) Spacing() int                            { return 0 }
 func (d listItemDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd { return nil }
 func (d listItemDelegate) Render(w io.Writer, m list.Model, index int, listItem list.Item) {
-	i, ok := listItem.(item)
+	i, ok := listItem.(resourceListItem)
 	if !ok {
 		return
 	}

@@ -58,7 +58,7 @@ func (tuiCmd *TUICmd) RunTUI(cmd *cobra.Command, profile config.Profile) error {
 			if description == "" {
 				description = "Stripe resource"
 			}
-			items = append(items, item{
+			items = append(items, resourceListItem{
 				title:        subCmd.Name(),
 				description:  description,
 				resourceType: "v1",
@@ -75,7 +75,7 @@ func (tuiCmd *TUICmd) RunTUI(cmd *cobra.Command, profile config.Profile) error {
 					if description == "" {
 						description = fmt.Sprintf("%s resource", subCmd.Name())
 					}
-					items = append(items, item{
+					items = append(items, resourceListItem{
 						title:        subCmd.Name() + " " + nsSubCmd.Name(),
 						description:  description,
 						resourceType: "v1",
@@ -86,7 +86,7 @@ func (tuiCmd *TUICmd) RunTUI(cmd *cobra.Command, profile config.Profile) error {
 	}
 
 	// Add separator for V2 resources
-	items = append(items, item{
+	items = append(items, resourceListItem{
 		title:        "--- V2 Resources ---",
 		description:  "Below are V2 API resources",
 		resourceType: "separator",
@@ -106,7 +106,7 @@ func (tuiCmd *TUICmd) RunTUI(cmd *cobra.Command, profile config.Profile) error {
 					if description == "" {
 						description = "Stripe V2 resource"
 					}
-					items = append(items, item{
+					items = append(items, resourceListItem{
 						title:        "v2 " + v2SubCmd.Name(),
 						description:  description,
 						resourceType: "v2",
@@ -123,7 +123,7 @@ func (tuiCmd *TUICmd) RunTUI(cmd *cobra.Command, profile config.Profile) error {
 							if description == "" {
 								description = fmt.Sprintf("V2 %s resource", v2SubCmd.Name())
 							}
-							items = append(items, item{
+							items = append(items, resourceListItem{
 								title:        "v2 " + v2SubCmd.Name() + " " + v2NsSubCmd.Name(),
 								description:  description,
 								resourceType: "v2",
@@ -179,11 +179,13 @@ func (tuiCmd *TUICmd) RunTUI(cmd *cobra.Command, profile config.Profile) error {
 		historyEntries:   []responseHistoryEntry{},
 		selectedResponse: -1,
 		logger:           logger,
+		// Store all items for filtering
+		allResourceItems: items,
 	}
 
 	// Initialize operations for the first resource
 	if len(items) > 0 {
-		if firstItem, ok := items[0].(item); ok && firstItem.resourceType != "separator" {
+		if firstItem, ok := items[0].(resourceListItem); ok && firstItem.resourceType != "separator" {
 			m = m.updateOperationsList(firstItem.title)
 		}
 	}
