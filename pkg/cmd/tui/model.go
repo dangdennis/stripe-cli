@@ -117,14 +117,24 @@ func (m model) handleWindowResize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	listWidth := (msg.Width - 4) / 2
 	m.resourceList.SetWidth(listWidth)
 	m.operationList.SetWidth(listWidth)
-	m.responseHistory.SetWidth(msg.Width - 4)
 
-	historyPanelHeight := msg.Height / 3
-	listHeight := msg.Height - 6 - historyPanelHeight
+	// History panel gets narrow width (left side of bottom area)
+	historyWidth := 25
+	if historyWidth > msg.Width/4 {
+		historyWidth = msg.Width / 4
+	}
+	m.responseHistory.SetWidth(historyWidth - 2) // Account for borders
+
+	// Calculate heights
+	bottomHeight := msg.Height / 3
+	if bottomHeight < 5 {
+		bottomHeight = 5
+	}
+	listHeight := msg.Height - 6 - bottomHeight // Account for preview line and borders
 
 	m.resourceList.SetHeight(listHeight)
 	m.operationList.SetHeight(listHeight)
-	m.responseHistory.SetHeight(historyPanelHeight - 4)
+	m.responseHistory.SetHeight(bottomHeight - 4) // Account for borders and padding
 	return m, nil
 }
 
@@ -408,17 +418,24 @@ type historyItem struct {
 }
 
 func (h historyItem) FilterValue() string { return h.command }
-func (h historyItem) Title() string       { return h.command }
+func (h historyItem) Title() string {
+	// Truncate command for narrow history panel
+	if len(h.command) > 20 {
+		return h.command[:17] + "..."
+	}
+	return h.command
+}
 func (h historyItem) Description() string {
-	return fmt.Sprintf("%s - %s", h.timestamp, h.status)
+	// Shorter description for narrow panel
+	return fmt.Sprintf("%s %s", h.timestamp, h.status)
 }
 
 func (m model) updateResponseHistoryList() model {
 	historyItems := make([]list.Item, 0, len(m.historyEntries))
 	for i, entry := range m.historyEntries {
-		status := "✓ Success"
+		status := "✓"
 		if entry.error != "" {
-			status = "✗ Error"
+			status = "✗"
 		}
 		historyItems = append(historyItems, historyItem{
 			index:     i,

@@ -58,7 +58,19 @@ func (m model) View() string {
 	// Join top panels horizontally
 	topPanels := lipgloss.JoinHorizontal(lipgloss.Top, resourcePanel, operationPanel)
 
-	// Create response history panel
+	// Create bottom area layout (history + output)
+	bottomHeight := m.height / 3
+	if bottomHeight < 5 {
+		bottomHeight = 5
+	}
+
+	// History panel dimensions (narrow left side)
+	historyWidth := 25 // Fixed narrow width for history
+	if historyWidth > m.width/4 {
+		historyWidth = m.width / 4 // But not more than 1/4 of screen
+	}
+
+	// Create response history panel (narrow left side)
 	historyView := m.responseHistory.View()
 	historyBorderColor := lipgloss.Color("240")
 	if m.activeList == 2 {
@@ -68,19 +80,19 @@ func (m model) View() string {
 	historyBorder := lipgloss.NewStyle().
 		Border(lipgloss.NormalBorder()).
 		BorderForeground(historyBorderColor).
-		Width(m.width - 4)
+		Width(historyWidth).
+		Height(bottomHeight - 2) // Account for border
 
 	historyPanel := historyBorder.Render(historyView)
 
-	// Create the main layout with preview line, panels, and history
-	mainLayout := lipgloss.JoinVertical(lipgloss.Left, previewLine, topPanels, historyPanel)
-
-	// If no output to show, return layout without output panel
+	// If no output to show, just show history panel alone
 	if !m.showOutput {
+		// Create the main layout with preview line, top panels, and just history
+		mainLayout := lipgloss.JoinVertical(lipgloss.Left, previewLine, topPanels, historyPanel)
 		return mainLayout
 	}
 
-	// Create bottom output panel
+	// Create output panel (right side, taking remaining width)
 	outputTitle := ""
 	if m.choice != "" {
 		outputTitle = fmt.Sprintf("Command Output: stripe %s", m.choice)
@@ -93,13 +105,9 @@ func (m model) View() string {
 
 	// Handle scrolling for output content
 	outputLines := strings.Split(outputContent, "\n")
-	outputHeight := m.height / 3
-	if outputHeight < 5 {
-		outputHeight = 5
-	}
 
 	// Calculate visible content based on scroll position
-	visibleHeight := outputHeight - 4 // Account for title, padding and borders
+	visibleHeight := bottomHeight - 4 // Account for title, padding and borders
 	if visibleHeight < 1 {
 		visibleHeight = 1
 	}
@@ -121,14 +129,15 @@ func (m model) View() string {
 		visibleContent = strings.Join(outputLines[startLine:endLine], "\n")
 	}
 
-	// Create output panel (no longer needs highlighting as it's not selectable)
+	// Create output panel (taking remaining width)
+	outputWidth := m.width - historyWidth - 6 // Account for borders and spacing
 	outputBorderColor := lipgloss.Color("240")
 
 	outputBorder := lipgloss.NewStyle().
 		Border(lipgloss.NormalBorder()).
 		BorderForeground(outputBorderColor).
-		Width(m.width - 4).
-		Height(outputHeight - 2). // Account for border
+		Width(outputWidth).
+		Height(bottomHeight - 2). // Account for border
 		Padding(1)
 
 	scrollInfo := ""
@@ -142,8 +151,12 @@ func (m model) View() string {
 			Render(outputTitle+scrollInfo) + "\n\n" + visibleContent,
 	)
 
-	// Join main layout and output panel vertically
-	return lipgloss.JoinVertical(lipgloss.Left, mainLayout, outputPanel)
+	// Join history and output panels horizontally
+	bottomPanel := lipgloss.JoinHorizontal(lipgloss.Top, historyPanel, outputPanel)
+
+	// Join main layout with bottom panel vertically
+	mainLayout := lipgloss.JoinVertical(lipgloss.Left, previewLine, topPanels, bottomPanel)
+	return mainLayout
 }
 
 func (m model) welcomeView() string {
